@@ -5,22 +5,7 @@ import { getToken } from "next-auth/jwt";
 export async function middleware(req: NextRequest) {
   try {
     const { nextUrl } = req;
-
-    const isApiRoute = nextUrl.pathname.startsWith("/api");
-    const isPublicPage =
-      nextUrl.pathname === "/" ||
-      nextUrl.pathname === "/ranking" ||
-      nextUrl.pathname.startsWith("/teams");
-
-    // Immediately allow public pages and API routes without checking token
-    if (isPublicPage || isApiRoute) {
-      return NextResponse.next();
-    }
-
-    const isAuthPage =
-      nextUrl.pathname.startsWith("/login") ||
-      nextUrl.pathname.startsWith("/register");
-
+    const isAuthPage = nextUrl.pathname.startsWith("/login");
     const isAdminPage = nextUrl.pathname.startsWith("/admin");
     const isCaptainPage = nextUrl.pathname.startsWith("/captain");
 
@@ -68,6 +53,9 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/admin/:path*",
+    "/captain/:path*",
+    "/dashboard/:path*",
+    "/login",
   ],
 };
