@@ -37,16 +37,15 @@ function LoginForm() {
         });
       } else {
         toast.success("Đăng nhập thành công!");
+        let target = "/dashboard";
         if (explicitCallback) {
-          router.push(explicitCallback);
+          target = explicitCallback;
         } else if (email === "admin") {
-          router.push("/admin");
-        } else if (email === "rox" || email === "egobao" || email === "ego" || email.includes("captain")) {
-          router.push("/captain");
-        } else {
-          router.push("/dashboard");
+          target = "/admin";
+        } else if (email === "rox" || email === "egobao" || email === "ego" || email.includes("captain") || email.includes("bao")) {
+          target = "/captain";
         }
-        router.refresh();
+        window.location.href = target;
       }
     } catch {
       toast.error("Có lỗi xảy ra. Vui lòng thử lại.");
