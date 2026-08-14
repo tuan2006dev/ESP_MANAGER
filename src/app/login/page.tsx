@@ -41,7 +41,7 @@ function LoginForm() {
           router.push(explicitCallback);
         } else if (email === "admin") {
           router.push("/admin");
-        } else if (email === "rox" || email === "ego" || email.includes("captain")) {
+        } else if (email === "rox" || email === "egobao" || email === "ego" || email.includes("captain")) {
           router.push("/captain");
         } else {
           router.push("/dashboard");

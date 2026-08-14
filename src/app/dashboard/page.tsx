@@ -9,6 +9,14 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  if (session.user.role === "ADMIN") {
+    redirect("/admin");
+  }
+
+  if (session.user.role === "TEAM_CAPTAIN") {
+    redirect("/captain");
+  }
+
   // Find member profile
   const member = await prisma.teamMember.findFirst({
     where: { userId: session.user.id, isActive: true },
