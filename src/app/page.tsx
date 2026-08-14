@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import prisma from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 async function getPublicData() {
   const teams = await prisma.team.findMany({
     where: { status: "ACTIVE" },
