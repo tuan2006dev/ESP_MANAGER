@@ -5,7 +5,7 @@ import { CaptainDashboard } from "@/components/captain/captain-dashboard";
 
 export default async function CaptainPage() {
   const session = await auth();
-  if (!session || (session.user.role !== "TEAM_CAPTAIN" && session.user.role !== "ADMIN")) {
+  if (!session) {
     redirect("/login");
   }
 
