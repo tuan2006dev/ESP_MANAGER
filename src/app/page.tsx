@@ -7,49 +7,54 @@ import prisma from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 async function getPublicData() {
-  const teams = await prisma.team.findMany({
-    where: { status: "ACTIVE" },
-    include: {
-      members: { where: { isActive: true } },
-      taskTeams: {
-        where: { matchResult: { isNot: null } },
-        include: { matchResult: true },
+  try {
+    const teams = await prisma.team.findMany({
+      where: { status: "ACTIVE" },
+      include: {
+        members: { where: { isActive: true } },
+        taskTeams: {
+          where: { matchResult: { isNot: null } },
+          include: { matchResult: true },
+        },
       },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+      orderBy: { createdAt: "asc" },
+    });
 
-  const teamsWithStats = teams.map((team) => {
-    const results = team.taskTeams
-      .map((tt) => tt.matchResult)
-      .filter(Boolean);
-    const totalMatches = results.length;
-    const wins = results.filter((r) => r!.resultType === "WIN").length;
-    const top3 = results.filter((r) =>
-      ["WIN", "TOP_2", "TOP_3"].includes(r!.resultType)
-    ).length;
-    const totalKills = results.reduce((sum, r) => sum + r!.totalKills, 0);
-    const winrate =
-      totalMatches > 0
-        ? Math.round((wins / totalMatches) * 10000) / 100
-        : 0;
+    const teamsWithStats = teams.map((team) => {
+      const results = team.taskTeams
+        .map((tt) => tt.matchResult)
+        .filter(Boolean);
+      const totalMatches = results.length;
+      const wins = results.filter((r) => r!.resultType === "WIN").length;
+      const top3 = results.filter((r) =>
+        ["WIN", "TOP_2", "TOP_3"].includes(r!.resultType)
+      ).length;
+      const totalKills = results.reduce((sum, r) => sum + r!.totalKills, 0);
+      const winrate =
+        totalMatches > 0
+          ? Math.round((wins / totalMatches) * 10000) / 100
+          : 0;
 
-    return {
-      id: team.id,
-      name: team.name,
-      logo: team.logo,
-      memberCount: team.members.length,
-      totalMatches,
-      wins,
-      top3,
-      totalKills,
-      winrate,
-    };
-  });
+      return {
+        id: team.id,
+        name: team.name,
+        logo: team.logo,
+        memberCount: team.members.length,
+        totalMatches,
+        wins,
+        top3,
+        totalKills,
+        winrate,
+      };
+    });
 
-  teamsWithStats.sort((a, b) => b.winrate - a.winrate);
+    teamsWithStats.sort((a, b) => b.winrate - a.winrate);
 
-  return { teams: teamsWithStats };
+    return { teams: teamsWithStats };
+  } catch (err) {
+    console.error("Lỗi tải dữ liệu công khai:", err);
+    return { teams: [] };
+  }
 }
 
 export default async function HomePage() {

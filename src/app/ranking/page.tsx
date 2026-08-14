@@ -7,22 +7,29 @@ import { RankingTable } from "@/components/common/ranking-table";
 export const dynamic = "force-dynamic";
 
 export default async function PublicRankingPage() {
-  const [teams, setting] = await Promise.all([
-    prisma.team.findMany({
-      where: { status: "ACTIVE" },
-      include: {
-        members: { where: { isActive: true } },
-        taskTeams: {
-          include: { matchResult: true },
-        },
-      },
-    }),
-    prisma.systemSetting.findUnique({
-      where: { key: "target_winrate" },
-    }),
-  ]);
+  let teams: any[] = [];
+  let targetWinrate = 70;
 
-  const targetWinrate = setting ? Number(setting.value) : 70;
+  try {
+    const [fetchedTeams, setting] = await Promise.all([
+      prisma.team.findMany({
+        where: { status: "ACTIVE" },
+        include: {
+          members: { where: { isActive: true } },
+          taskTeams: {
+            include: { matchResult: true },
+          },
+        },
+      }),
+      prisma.systemSetting.findUnique({
+        where: { key: "target_winrate" },
+      }),
+    ]);
+    teams = fetchedTeams;
+    if (setting) targetWinrate = Number(setting.value);
+  } catch (err) {
+    console.error("Lỗi tải ranking:", err);
+  }
 
   return (
     <div className="min-h-screen bg-background">
