@@ -123,7 +123,23 @@ export default function ScoreboardsPage() {
     setEndDate(todayStr);
     setStartTime("00:00");
     setEndTime("23:59");
+
+    if (typeof window !== "undefined") {
+      const savedCookie = localStorage.getItem("garena_session_cookie");
+      if (savedCookie) setCustomCookie(savedCookie);
+    }
   }, []);
+
+  const handleCookieChange = (val: string) => {
+    setCustomCookie(val);
+    if (typeof window !== "undefined") {
+      if (val.trim()) {
+        localStorage.setItem("garena_session_cookie", val.trim());
+      } else {
+        localStorage.removeItem("garena_session_cookie");
+      }
+    }
+  };
 
   // Handle finding Garena Matches
   const handleFindMatches = async (e?: React.FormEvent) => {
@@ -876,7 +892,7 @@ export default function ScoreboardsPage() {
                     id="cookie"
                     placeholder="session=...; session.sig=..."
                     value={customCookie}
-                    onChange={(e) => setCustomCookie(e.target.value)}
+                    onChange={(e) => handleCookieChange(e.target.value)}
                     className="text-xs font-mono bg-black/40 border-amber-500/20"
                   />
                   <p className="text-[11px] text-muted-foreground">

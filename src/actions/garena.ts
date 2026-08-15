@@ -2,8 +2,10 @@
 
 const GARENA_BASE = "https://congdong.ff.garena.vn/league-score-api";
 
+const DEFAULT_GARENA_COOKIE = "session=222941ef-bce8-4522-abe4-a934d4961221; session.sig=JNjI4kbH9vfaVofyQy0J811xG3U";
+
 function getGarenaHeaders(customCookie?: string) {
-  const cookie = customCookie || process.env.GARENA_SESSION_COOKIE || "";
+  const cookie = customCookie || process.env.GARENA_SESSION_COOKIE || DEFAULT_GARENA_COOKIE;
   return {
     "accept": "application/json, text/plain, */*",
     "content-type": "application/json",
