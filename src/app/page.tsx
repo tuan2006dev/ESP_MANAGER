@@ -74,9 +74,16 @@ export default async function HomePage() {
           <nav className="flex items-center gap-4">
             <Link
               href="/ranking"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
             >
               Ranking
+            </Link>
+            <Link
+              href="/dashboard/scoreboards"
+              className="text-sm text-amber-400 hover:text-amber-300 transition-colors font-semibold flex items-center gap-1.5"
+            >
+              <Trophy className="h-4 w-4 text-amber-500" />
+              Tính điểm thi đấu
             </Link>
             <Link href="/login">
               <Button
@@ -115,11 +122,20 @@ export default async function HomePage() {
             chi tiết cho toàn bộ đội tuyển Esports của tổ chức.
           </p>
 
-          <div className="mt-10 flex items-center justify-center gap-4">
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+            <Link href="/dashboard/scoreboards">
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black px-7 shadow-lg shadow-amber-500/25 uppercase tracking-wide"
+              >
+                <Trophy className="mr-2 h-5 w-5 text-black" />
+                Tính điểm thi đấu
+              </Button>
+            </Link>
             <Link href="/login">
               <Button
                 size="lg"
-                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-8 glow-primary"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-7 glow-primary"
               >
                 Truy cập hệ thống
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -129,7 +145,7 @@ export default async function HomePage() {
               <Button
                 variant="outline"
                 size="lg"
-                className="border-border/50 hover:bg-accent"
+                className="border-border/50 hover:bg-accent px-6"
               >
                 <Trophy className="mr-2 h-4 w-4" />
                 Xem Ranking
