@@ -8,7 +8,6 @@ import {
   Clock, 
   Search, 
   Loader2, 
-  Download, 
   Zap, 
   Flame, 
   Users, 
@@ -22,9 +21,10 @@ import {
   Square,
   Crown,
   ImageIcon,
-  Share2,
   X,
-  Smartphone
+  Smartphone,
+  Download,
+  ShieldAlert
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -200,7 +200,7 @@ export default function ScoreboardsPage() {
     }
   };
 
-  // Select Single Match
+  // Select Single Match (Max 12 Teams)
   const handleSelectSingleMatch = async (matchId: string) => {
     setViewMode("single");
     setSelectedSingleMatchId(matchId);
@@ -213,7 +213,9 @@ export default function ScoreboardsPage() {
       });
 
       if (res.success && res.match?.ranks) {
-        setRanks(res.match.ranks);
+        // Enforce MAX 12 teams
+        const valid12 = (res.match.ranks as RankItem[]).slice(0, 12);
+        setRanks(valid12);
         toast.success(`Đã tải dữ liệu trận #${matchId}`);
       } else {
         toast.error(res.error || "Không thể tải chi tiết trận đấu.");
@@ -253,7 +255,7 @@ export default function ScoreboardsPage() {
     aggregateMultipleMatches(selected);
   };
 
-  // Aggregate Multiple Matches Algorithm (Fuzzy Match)
+  // Aggregate Multiple Matches Algorithm (Fuzzy Match & MAX 12 Teams)
   const aggregateMultipleMatches = async (matchIds: string[]) => {
     if (matchIds.length === 0) return;
     setViewMode("multi");
@@ -270,7 +272,7 @@ export default function ScoreboardsPage() {
         if (!res.success || !res.match?.ranks) return;
         const currentMatchId = matchIds[matchIdx];
 
-        res.match.ranks.forEach((r: RankItem, rankIndex: number) => {
+        res.match.ranks.slice(0, 12).forEach((r: RankItem, rankIndex: number) => {
           const currentIds = (r.playerAccountIds || []).filter(Boolean);
           const currentNames = (r.accountNames || []).filter(Boolean);
 
@@ -311,7 +313,7 @@ export default function ScoreboardsPage() {
                 bestMatch!.playerAccountIds.push(id);
               }
             });
-          } else {
+          } else if (teamsList.length < 12) {
             const newTeam: AggregatedTeam = {
               teamKey: `team_${teamsList.length + 1}`,
               teamName: r.teamName || `Đội Slot #${teamsList.length + 1}`,
@@ -335,18 +337,21 @@ export default function ScoreboardsPage() {
         });
       });
 
+      // Sort: Total Score DESC -> Total Kill DESC -> Total Booyah DESC
       const sortedTeams = teamsList.sort((a, b) => {
         if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
         if (b.totalKill !== a.totalKill) return b.totalKill - a.totalKill;
         return b.totalBooyah - a.totalBooyah;
       });
 
-      sortedTeams.forEach((t, i) => {
+      // EXACTLY 12 TEAMS MAX
+      const final12 = sortedTeams.slice(0, 12);
+      final12.forEach((t, i) => {
         t.finalRank = i + 1;
       });
 
-      setAggregatedTeams(sortedTeams);
-      toast.success(`Đã tổng hợp điểm thành công từ ${matchIds.length} trận đấu!`);
+      setAggregatedTeams(final12);
+      toast.success(`Đã tổng hợp 12 đội từ ${matchIds.length} trận đấu!`);
     } catch {
       toast.error("Có lỗi xảy ra khi tổng hợp điểm nhiều trận.");
     } finally {
@@ -378,13 +383,11 @@ export default function ScoreboardsPage() {
     setPreviewImageUrl(dataUrl);
     setPreviewImageTitle(title);
 
-    // Try blob download and Web Share API for Mobile
     canvas.toBlob(async (blob) => {
       if (!blob) return;
 
       const file = new File([blob], `${filename}.png`, { type: "image/png" });
 
-      // If on mobile and Web Share API is available with file support
       if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
@@ -392,14 +395,13 @@ export default function ScoreboardsPage() {
             title: title,
             text: "Bảng điểm thi đấu Free Fire Esports",
           });
-          toast.success("Đã mở chia sẻ & lưu ảnh!");
+          toast.success("Đã mở lưu ảnh!");
           return;
         } catch {
-          // fallback to normal download if user cancelled share sheet
+          // cancelled
         }
       }
 
-      // Standard desktop & mobile browser direct download trigger
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.download = `${filename}.png`;
@@ -408,13 +410,14 @@ export default function ScoreboardsPage() {
       link.click();
       document.body.removeChild(link);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-      toast.success("Đã tạo ảnh bang-diem.png thành công!");
+      toast.success("Đã tạo ảnh bang-diem.png siêu nét!");
     }, "image/png");
   };
 
-  // === CANVAS HIGH RESOLUTION PNG EXPORTER (SINGLE MATCH) ===
+  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (SINGLE MATCH - EXACT 12 TEAMS) ===
   const downloadSingleMatchPng = async () => {
-    if (ranks.length === 0) return;
+    const valid12 = ranks.slice(0, 12);
+    if (valid12.length === 0) return;
     setExportingPng(true);
 
     try {
@@ -422,153 +425,172 @@ export default function ScoreboardsPage() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const width = 1920;
-      const height = 1120;
+      // 2K Ultra HD resolution for extreme sharpness
+      const width = 2400;
+      const height = 1420;
       canvas.width = width;
       canvas.height = height;
 
-      // Background Gradient
+      // Deep Cyberpunk Esports Gradient
       const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-      bgGrad.addColorStop(0, "#0a0a0f");
-      bgGrad.addColorStop(0.5, "#12131c");
-      bgGrad.addColorStop(1, "#07070a");
+      bgGrad.addColorStop(0, "#080711");
+      bgGrad.addColorStop(0.3, "#0e0f1d");
+      bgGrad.addColorStop(0.7, "#141529");
+      bgGrad.addColorStop(1, "#07060d");
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Neon Glow Accents
-      const glow1 = ctx.createRadialGradient(200, 100, 10, 200, 100, 500);
-      glow1.addColorStop(0, "rgba(245, 158, 11, 0.15)");
-      glow1.addColorStop(1, "transparent");
-      ctx.fillStyle = glow1;
+      // Gold Glow Header
+      const glowTop = ctx.createRadialGradient(width / 2, 80, 20, width / 2, 80, 700);
+      glowTop.addColorStop(0, "rgba(245, 158, 11, 0.25)");
+      glowTop.addColorStop(1, "transparent");
+      ctx.fillStyle = glowTop;
       ctx.fillRect(0, 0, width, height);
 
-      // Outer Border
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.4)";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(40, 40, width - 80, height - 80);
+      // Corner Brackets
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.5)";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(45, 45, width - 90, height - 90);
 
-      // Header Banner
+      // Inner Border
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(55, 55, width - 110, height - 110);
+
+      // Header Title
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 38px sans-serif";
+      ctx.font = "900 48px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("BẢNG ĐIỂM CHI TIẾT TRẬN ĐẤU - FREE FIRE ESPORTS", width / 2, 105);
+      ctx.fillText("BẢNG ĐIỂM CHI TIẾT TRẬN ĐẤU", width / 2, 125);
 
+      // Subtitle
       ctx.fillStyle = "#f59e0b";
-      ctx.font = "bold 20px monospace";
-      ctx.fillText(`MÃ TRẬN ĐẤU: #${selectedSingleMatchId || "GARENA"}  |  NGÀY: ${startDate || "HÔM NAY"}`, width / 2, 140);
+      ctx.font = "bold 24px monospace";
+      ctx.fillText(`MÃ TRẬN: #${selectedSingleMatchId || "GARENA"}   |   FREE FIRE ESPORTS TOURNAMENT`, width / 2, 170);
 
       // Table Geometry
-      const startX = 80;
-      const startY = 180;
-      const tableWidth = width - 160;
-      const rowHeight = 65;
+      const startX = 85;
+      const startY = 220;
+      const tableWidth = width - 170;
+      const rowHeight = 78;
 
       // Table Header Row
-      ctx.fillStyle = "rgba(245, 158, 11, 0.2)";
-      ctx.fillRect(startX, startY, tableWidth, 50);
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(startX, startY, tableWidth, 50);
+      ctx.fillStyle = "rgba(245, 158, 11, 0.22)";
+      ctx.fillRect(startX, startY, tableWidth, 60);
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.7)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(startX, startY, tableWidth, 60);
 
       ctx.fillStyle = "#fbbf24";
-      ctx.font = "900 18px sans-serif";
+      ctx.font = "900 22px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText("HẠNG", startX + 25, startY + 32);
-      ctx.fillText("ĐỘI TUYỂN", startX + 130, startY + 32);
-      ctx.fillText("THÀNH VIÊN", startX + 450, startY + 32);
+      ctx.fillText("HẠNG", startX + 30, startY + 38);
+      ctx.fillText("ĐỘI TUYỂN", startX + 170, startY + 38);
+      ctx.fillText("THÀNH VIÊN TRONG PHÒNG", startX + 600, startY + 38);
       
       ctx.textAlign = "center";
-      ctx.fillText("BOOYAH!", startX + 1240, startY + 32);
-      ctx.fillText("KILLS", startX + 1430, startY + 32);
-      ctx.fillText("TỔNG ĐIỂM", startX + 1640, startY + 32);
+      ctx.fillText("BOOYAH!", startX + 1620, startY + 38);
+      ctx.fillText("KILLS", startX + 1850, startY + 38);
+      ctx.fillText("TỔNG ĐIỂM", startX + 2100, startY + 38);
 
-      // Table Data Rows
-      ranks.forEach((r, i) => {
-        const y = startY + 60 + i * rowHeight;
+      // 12 Rows
+      valid12.forEach((r, i) => {
+        const y = startY + 70 + i * rowHeight;
         const isTop1 = r.rank === 1;
         const isTop2 = r.rank === 2;
         const isTop3 = r.rank === 3;
 
+        // Card Container Background
         if (isTop1) {
-          ctx.fillStyle = "rgba(245, 158, 11, 0.18)";
+          const goldRowGrad = ctx.createLinearGradient(startX, y, startX + tableWidth, y);
+          goldRowGrad.addColorStop(0, "rgba(245, 158, 11, 0.28)");
+          goldRowGrad.addColorStop(1, "rgba(234, 88, 12, 0.12)");
+          ctx.fillStyle = goldRowGrad;
         } else if (isTop2) {
-          ctx.fillStyle = "rgba(148, 163, 184, 0.12)";
+          ctx.fillStyle = "rgba(148, 163, 184, 0.18)";
         } else if (isTop3) {
-          ctx.fillStyle = "rgba(180, 83, 9, 0.12)";
+          ctx.fillStyle = "rgba(180, 83, 9, 0.18)";
         } else {
-          ctx.fillStyle = i % 2 === 0 ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.25)";
+          ctx.fillStyle = i % 2 === 0 ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.35)";
         }
-        ctx.fillRect(startX, y, tableWidth, rowHeight - 6);
+        ctx.fillRect(startX, y, tableWidth, rowHeight - 8);
 
-        ctx.strokeStyle = isTop1 ? "rgba(245, 158, 11, 0.6)" : "rgba(255, 255, 255, 0.08)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(startX, y, tableWidth, rowHeight - 6);
+        // Row Border
+        ctx.strokeStyle = isTop1 
+          ? "rgba(245, 158, 11, 0.8)" 
+          : isTop2 
+          ? "rgba(203, 213, 225, 0.4)" 
+          : isTop3 
+          ? "rgba(217, 119, 6, 0.4)" 
+          : "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = isTop1 ? 2.5 : 1.5;
+        ctx.strokeRect(startX, y, tableWidth, rowHeight - 8);
 
         // Rank Badge
         ctx.textAlign = "center";
         if (isTop1) {
           ctx.fillStyle = "#f59e0b";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#000000";
-          ctx.font = "900 22px sans-serif";
-          ctx.fillText("#1", startX + 42, y + 37);
+          ctx.font = "900 26px sans-serif";
+          ctx.fillText("#1", startX + 52, y + 45);
         } else if (isTop2) {
-          ctx.fillStyle = "#cbd5e1";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillStyle = "#e2e8f0";
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#000000";
-          ctx.font = "900 20px sans-serif";
-          ctx.fillText("#2", startX + 42, y + 37);
+          ctx.font = "900 24px sans-serif";
+          ctx.fillText("#2", startX + 52, y + 45);
         } else if (isTop3) {
           ctx.fillStyle = "#b45309";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#ffffff";
-          ctx.font = "900 20px sans-serif";
-          ctx.fillText("#3", startX + 42, y + 37);
+          ctx.font = "900 24px sans-serif";
+          ctx.fillText("#3", startX + 52, y + 45);
         } else {
           ctx.fillStyle = "#94a3b8";
-          ctx.font = "bold 20px sans-serif";
-          ctx.fillText(`#${r.rank}`, startX + 42, y + 37);
+          ctx.font = "bold 24px sans-serif";
+          ctx.fillText(`#${r.rank}`, startX + 52, y + 45);
         }
 
         // Team Name
         ctx.textAlign = "left";
         ctx.fillStyle = isTop1 ? "#fef08a" : "#ffffff";
-        ctx.font = "bold 20px sans-serif";
+        ctx.font = "bold 24px 'Segoe UI', Inter, sans-serif";
         const teamDisplayName = r.teamName || `Đội Slot #${r.rank}`;
-        ctx.fillText(teamDisplayName.slice(0, 24), startX + 130, y + 37);
+        ctx.fillText(teamDisplayName.slice(0, 24), startX + 170, y + 45);
 
-        // Members
+        // Members Roster
         ctx.fillStyle = "#94a3b8";
-        ctx.font = "15px sans-serif";
-        const memberText = (showNames ? r.accountNames : r.playerAccountIds).slice(0, 4).join(" • ");
-        ctx.fillText(memberText.slice(0, 70), startX + 450, y + 36);
+        ctx.font = "18px 'Segoe UI', Inter, sans-serif";
+        const memberText = (showNames ? r.accountNames : r.playerAccountIds).slice(0, 4).join("   •   ");
+        ctx.fillText(memberText.slice(0, 80), startX + 600, y + 44);
 
         // Booyah
         ctx.textAlign = "center";
         if (r.booyah > 0) {
           ctx.fillStyle = "#f59e0b";
-          ctx.font = "bold 18px sans-serif";
-          ctx.fillText("⭐ 1", startX + 1240, y + 37);
+          ctx.font = "bold 22px sans-serif";
+          ctx.fillText("👑 BOOYAH!", startX + 1620, y + 45);
         } else {
           ctx.fillStyle = "#64748b";
-          ctx.font = "18px monospace";
-          ctx.fillText("0", startX + 1240, y + 37);
+          ctx.font = "22px monospace";
+          ctx.fillText("0", startX + 1620, y + 45);
         }
 
         // Kills
         ctx.fillStyle = "#f87171";
-        ctx.font = "bold 22px monospace";
-        ctx.fillText(String(r.kill), startX + 1430, y + 38);
+        ctx.font = "bold 28px monospace";
+        ctx.fillText(String(r.kill), startX + 1850, y + 46);
 
-        // Total Score
+        // Total Points
         ctx.fillStyle = isTop1 ? "#fde047" : "#fbbf24";
-        ctx.font = "900 24px monospace";
-        ctx.fillText(String(r.score), startX + 1640, y + 39);
+        ctx.font = "900 32px monospace";
+        ctx.fillText(String(r.score), startX + 2100, y + 47);
       });
 
-      // Watermark Footer
+      // Footer
       ctx.fillStyle = "#64748b";
-      ctx.font = "14px sans-serif";
+      ctx.font = "bold 16px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 55);
 
@@ -580,9 +602,10 @@ export default function ScoreboardsPage() {
     }
   };
 
-  // === MULTI-MATCH PNG EXPORTER ===
+  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (MULTI-MATCH - EXACT 12 TEAMS) ===
   const downloadMultiMatchPng = async () => {
-    if (aggregatedTeams.length === 0) return;
+    const valid12 = aggregatedTeams.slice(0, 12);
+    if (valid12.length === 0) return;
     setExportingPng(true);
 
     try {
@@ -590,139 +613,154 @@ export default function ScoreboardsPage() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const width = 1920;
-      const height = Math.max(1150, 240 + aggregatedTeams.length * 68);
+      const width = 2400;
+      const height = 1420;
       canvas.width = width;
       canvas.height = height;
 
-      // Dark Purple Esports Gradient
+      // Dark Indigo Gradient
       const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-      bgGrad.addColorStop(0, "#080612");
-      bgGrad.addColorStop(0.5, "#110e24");
-      bgGrad.addColorStop(1, "#05040a");
+      bgGrad.addColorStop(0, "#080614");
+      bgGrad.addColorStop(0.3, "#0f0c24");
+      bgGrad.addColorStop(0.7, "#171238");
+      bgGrad.addColorStop(1, "#06040f");
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Neon Accents
-      const glow1 = ctx.createRadialGradient(300, 100, 10, 300, 100, 600);
-      glow1.addColorStop(0, "rgba(168, 85, 247, 0.2)");
-      glow1.addColorStop(1, "transparent");
-      ctx.fillStyle = glow1;
+      // Purple Glow Top
+      const glowTop = ctx.createRadialGradient(width / 2, 80, 20, width / 2, 80, 700);
+      glowTop.addColorStop(0, "rgba(168, 85, 247, 0.28)");
+      glowTop.addColorStop(1, "transparent");
+      ctx.fillStyle = glowTop;
       ctx.fillRect(0, 0, width, height);
 
-      // Outer Border
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.5)";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(40, 40, width - 80, height - 80);
+      // Corner Brackets
+      ctx.strokeStyle = "rgba(168, 85, 247, 0.6)";
+      ctx.lineWidth = 6;
+      ctx.strokeRect(45, 45, width - 90, height - 90);
+
+      // Inner Border
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(55, 55, width - 110, height - 110);
 
       // Title
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 38px sans-serif";
+      ctx.font = "900 48px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "center";
       const title = cprThreshold > 0 
         ? `BẢNG TỔNG HỢP ĐIỂM (CHAMPION RUSH - ${selectedMatchIds.length} TRẬN)`
         : `BẢNG TỔNG HỢP ĐIỂM TOÀN GIẢI (${selectedMatchIds.length} TRẬN)`;
-      ctx.fillText(title, width / 2, 105);
+      ctx.fillText(title, width / 2, 125);
 
       ctx.fillStyle = "#c084fc";
-      ctx.font = "bold 20px monospace";
-      ctx.fillText(`CỘNG DỒN TỪ ${selectedMatchIds.length} TRẬN ĐẤU  |  FREE FIRE ESPORTS`, width / 2, 140);
+      ctx.font = "bold 24px monospace";
+      ctx.fillText(`CỘNG DỒN TỔNG ĐIỂM TỪ ${selectedMatchIds.length} TRẬN ĐẤU  |  FREE FIRE ESPORTS`, width / 2, 170);
 
       // Table Geometry
-      const startX = 80;
-      const startY = 180;
-      const tableWidth = width - 160;
-      const rowHeight = 65;
+      const startX = 85;
+      const startY = 220;
+      const tableWidth = width - 170;
+      const rowHeight = 78;
 
-      // Header Row
-      ctx.fillStyle = "rgba(168, 85, 247, 0.25)";
-      ctx.fillRect(startX, startY, tableWidth, 50);
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(startX, startY, tableWidth, 50);
+      // Table Header Row
+      ctx.fillStyle = "rgba(168, 85, 247, 0.28)";
+      ctx.fillRect(startX, startY, tableWidth, 60);
+      ctx.strokeStyle = "rgba(168, 85, 247, 0.8)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(startX, startY, tableWidth, 60);
 
       ctx.fillStyle = "#e9d5ff";
-      ctx.font = "900 17px sans-serif";
+      ctx.font = "900 22px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText("HẠNG", startX + 25, startY + 32);
-      ctx.fillText("ĐỘI TUYỂN", startX + 120, startY + 32);
-      ctx.fillText("THÀNH VIÊN", startX + 380, startY + 32);
+      ctx.fillText("HẠNG", startX + 30, startY + 38);
+      ctx.fillText("ĐỘI TUYỂN", startX + 160, startY + 38);
+      ctx.fillText("THÀNH VIÊN", startX + 500, startY + 38);
 
-      // Match columns
-      const matchColStartX = startX + 980;
-      const matchColWidth = 75;
+      // Match Columns
+      const matchColStartX = startX + 1300;
+      const matchColWidth = 100;
       selectedMatchIds.forEach((_, idx) => {
         ctx.textAlign = "center";
-        ctx.fillText(`T #${idx + 1}`, matchColStartX + idx * matchColWidth + matchColWidth / 2, startY + 32);
+        ctx.fillText(`T #${idx + 1}`, matchColStartX + idx * matchColWidth + matchColWidth / 2, startY + 38);
       });
 
-      const statStartX = matchColStartX + selectedMatchIds.length * matchColWidth + 20;
+      const statStartX = matchColStartX + selectedMatchIds.length * matchColWidth + 30;
       ctx.textAlign = "center";
-      ctx.fillText("BOOYAH", statStartX + 45, startY + 32);
-      ctx.fillText("TỔNG KILL", statStartX + 155, startY + 32);
+      ctx.fillText("BOOYAH", statStartX + 60, startY + 38);
+      ctx.fillText("TỔNG KILL", statStartX + 200, startY + 38);
       
       ctx.fillStyle = "#fde047";
-      ctx.fillText("TỔNG ĐIỂM", startX + tableWidth - 75, startY + 32);
+      ctx.fillText("TỔNG ĐIỂM", startX + tableWidth - 100, startY + 38);
 
-      // Data Rows
-      aggregatedTeams.forEach((team, i) => {
-        const y = startY + 60 + i * rowHeight;
+      // 12 Rows
+      valid12.forEach((team, i) => {
+        const y = startY + 70 + i * rowHeight;
         const isTop1 = team.finalRank === 1;
         const isTop2 = team.finalRank === 2;
         const isTop3 = team.finalRank === 3;
 
         if (isTop1) {
-          ctx.fillStyle = "rgba(245, 158, 11, 0.18)";
+          const goldRowGrad = ctx.createLinearGradient(startX, y, startX + tableWidth, y);
+          goldRowGrad.addColorStop(0, "rgba(245, 158, 11, 0.28)");
+          goldRowGrad.addColorStop(1, "rgba(168, 85, 247, 0.15)");
+          ctx.fillStyle = goldRowGrad;
         } else if (isTop2) {
-          ctx.fillStyle = "rgba(148, 163, 184, 0.12)";
+          ctx.fillStyle = "rgba(148, 163, 184, 0.18)";
         } else if (isTop3) {
-          ctx.fillStyle = "rgba(180, 83, 9, 0.12)";
+          ctx.fillStyle = "rgba(180, 83, 9, 0.18)";
         } else {
-          ctx.fillStyle = i % 2 === 0 ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.25)";
+          ctx.fillStyle = i % 2 === 0 ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.35)";
         }
-        ctx.fillRect(startX, y, tableWidth, rowHeight - 6);
+        ctx.fillRect(startX, y, tableWidth, rowHeight - 8);
 
-        ctx.strokeStyle = isTop1 ? "rgba(245, 158, 11, 0.6)" : "rgba(255, 255, 255, 0.08)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(startX, y, tableWidth, rowHeight - 6);
+        ctx.strokeStyle = isTop1 
+          ? "rgba(245, 158, 11, 0.8)" 
+          : isTop2 
+          ? "rgba(203, 213, 225, 0.4)" 
+          : isTop3 
+          ? "rgba(217, 119, 6, 0.4)" 
+          : "rgba(255, 255, 255, 0.08)";
+        ctx.lineWidth = isTop1 ? 2.5 : 1.5;
+        ctx.strokeRect(startX, y, tableWidth, rowHeight - 8);
 
         // Rank Badge
         ctx.textAlign = "center";
         if (isTop1) {
           ctx.fillStyle = "#f59e0b";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#000000";
-          ctx.font = "900 22px sans-serif";
-          ctx.fillText("#1", startX + 42, y + 37);
+          ctx.font = "900 26px sans-serif";
+          ctx.fillText("#1", startX + 52, y + 45);
         } else if (isTop2) {
-          ctx.fillStyle = "#cbd5e1";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillStyle = "#e2e8f0";
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#000000";
-          ctx.font = "900 20px sans-serif";
-          ctx.fillText("#2", startX + 42, y + 37);
+          ctx.font = "900 24px sans-serif";
+          ctx.fillText("#2", startX + 52, y + 45);
         } else if (isTop3) {
           ctx.fillStyle = "#b45309";
-          ctx.fillRect(startX + 18, y + 10, 48, 38);
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#ffffff";
-          ctx.font = "900 20px sans-serif";
-          ctx.fillText("#3", startX + 42, y + 37);
+          ctx.font = "900 24px sans-serif";
+          ctx.fillText("#3", startX + 52, y + 45);
         } else {
           ctx.fillStyle = "#94a3b8";
-          ctx.font = "bold 20px sans-serif";
-          ctx.fillText(`#${team.finalRank}`, startX + 42, y + 37);
+          ctx.font = "bold 24px sans-serif";
+          ctx.fillText(`#${team.finalRank}`, startX + 52, y + 45);
         }
 
         // Team Name
         ctx.textAlign = "left";
         ctx.fillStyle = isTop1 ? "#fef08a" : "#ffffff";
-        ctx.font = "bold 19px sans-serif";
-        ctx.fillText(team.teamName.slice(0, 20), startX + 120, y + 37);
+        ctx.font = "bold 24px 'Segoe UI', Inter, sans-serif";
+        ctx.fillText(team.teamName.slice(0, 20), startX + 160, y + 45);
 
         // Members
         ctx.fillStyle = "#94a3b8";
-        ctx.font = "14px sans-serif";
-        const members = team.accountNames.slice(0, 4).join(" • ");
-        ctx.fillText(members.slice(0, 45), startX + 380, y + 36);
+        ctx.font = "17px 'Segoe UI', Inter, sans-serif";
+        const members = team.accountNames.slice(0, 4).join("  •  ");
+        ctx.fillText(members.slice(0, 55), startX + 500, y + 44);
 
         // Scores per match
         selectedMatchIds.forEach((mId, idx) => {
@@ -730,39 +768,40 @@ export default function ScoreboardsPage() {
           ctx.textAlign = "center";
           if (matchStat) {
             ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 17px monospace";
-            ctx.fillText(`${matchStat.score}`, matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 30);
-            ctx.fillStyle = "#64748b";
-            ctx.font = "11px monospace";
-            ctx.fillText(`(${matchStat.kill}k)`, matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 46);
+            ctx.font = "bold 22px monospace";
+            ctx.fillText(`${matchStat.score}`, matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 36);
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "14px monospace";
+            ctx.fillText(`(${matchStat.kill}k)`, matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 57);
           } else {
             ctx.fillStyle = "#475569";
-            ctx.fillText("-", matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 37);
+            ctx.font = "bold 20px monospace";
+            ctx.fillText("-", matchColStartX + idx * matchColWidth + matchColWidth / 2, y + 45);
           }
         });
 
         // Total Booyah
         ctx.textAlign = "center";
         ctx.fillStyle = "#f59e0b";
-        ctx.font = "bold 19px monospace";
-        ctx.fillText(String(team.totalBooyah), statStartX + 45, y + 37);
+        ctx.font = "bold 24px monospace";
+        ctx.fillText(String(team.totalBooyah), statStartX + 60, y + 46);
 
         // Total Kill
         ctx.fillStyle = "#f87171";
-        ctx.font = "bold 20px monospace";
-        ctx.fillText(String(team.totalKill), statStartX + 155, y + 37);
+        ctx.font = "bold 26px monospace";
+        ctx.fillText(String(team.totalKill), statStartX + 200, y + 46);
 
-        // Total Score
+        // Total Points
         ctx.fillStyle = "#facc15";
-        ctx.font = "900 25px monospace";
-        ctx.fillText(String(team.totalScore), startX + tableWidth - 75, y + 38);
+        ctx.font = "900 34px monospace";
+        ctx.fillText(String(team.totalScore), startX + tableWidth - 100, y + 48);
       });
 
       // Footer
       ctx.fillStyle = "#64748b";
-      ctx.font = "14px sans-serif";
+      ctx.font = "bold 16px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỔNG HỢP TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 40);
+      ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỔNG HỢP TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 55);
 
       await triggerUniversalDownload(canvas, "bang-diem", `Bảng Tổng Điểm ${selectedMatchIds.length} Trận`);
     } catch {
@@ -852,11 +891,11 @@ export default function ScoreboardsPage() {
             <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white uppercase flex flex-wrap items-center gap-2">
               Hệ Thống Tính Điểm
               <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold normal-case">
-                Trực tiếp Garena
+                Trực tiếp Garena (Max 12 Đội)
               </span>
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 line-clamp-1">
-              Tự động tính điểm 4-5 trận & Xuất ảnh PNG Full HD
+              Tự động tính điểm 4-5 trận & Xuất ảnh PNG 2K siêu nét
             </p>
           </div>
         </div>
@@ -1143,7 +1182,7 @@ export default function ScoreboardsPage() {
             </CardContent>
           </Card>
 
-          {/* VIEW MODE 1: SINGLE MATCH SCOREBOARD */}
+          {/* VIEW MODE 1: SINGLE MATCH SCOREBOARD (MAX 12 TEAMS) */}
           {viewMode === "single" && (
             loadingMatchDetails ? (
               <div className="flex flex-col items-center justify-center p-12 space-y-3 bg-card/20 rounded-2xl border border-border/30">
@@ -1153,14 +1192,14 @@ export default function ScoreboardsPage() {
                 </p>
               </div>
             ) : ranks.length > 0 ? (
-              <Card className="border-border/60 bg-gradient-to-b from-card/90 to-card/60 backdrop-blur-md shadow-2xl overflow-hidden">
+              <Card className="border-amber-500/30 bg-gradient-to-b from-card/95 to-card/70 backdrop-blur-md shadow-2xl overflow-hidden">
                 <CardHeader className="border-b border-border/40 pb-3 p-4 sm:p-6 bg-black/40">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2">
                         <Medal className="w-5 h-5 text-amber-400 shrink-0" />
                         <CardTitle className="text-base sm:text-xl font-black uppercase text-white tracking-wide">
-                          Bảng Điểm Chi Tiết Trận Đấu
+                          Bảng Điểm Trận Đấu (Top 1 - 12)
                         </CardTitle>
                       </div>
                       <CardDescription className="font-mono text-xs mt-0.5">
@@ -1186,26 +1225,26 @@ export default function ScoreboardsPage() {
                         className="text-xs h-8 gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black uppercase shadow-lg shadow-amber-500/25 flex-1 md:flex-none"
                       >
                         {exportingPng ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-                        Tải Ảnh PNG
+                        Tải Ảnh PNG (2K Siêu Nét)
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
 
                 <CardContent className="p-0 overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[620px]">
+                  <table className="w-full text-left border-collapse min-w-[650px]">
                     <thead>
-                      <tr className="bg-black/60 border-b border-border/40 text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground font-black">
-                        <th className="py-3 px-3 text-center w-14">Hạng</th>
-                        <th className="py-3 px-3 w-40">Tên Đội</th>
-                        <th className="py-3 px-3">Thành Viên</th>
-                        <th className="py-3 px-3 text-center w-20">Booyah!</th>
-                        <th className="py-3 px-3 text-center w-16">Kill</th>
-                        <th className="py-3 px-3 text-center w-24">Tổng Điểm</th>
+                      <tr className="bg-neutral-950/80 border-b border-border/50 text-[11px] uppercase tracking-wider text-muted-foreground font-black">
+                        <th className="py-3.5 px-4 text-center w-16">Hạng</th>
+                        <th className="py-3.5 px-4 w-48">Đội Tuyển</th>
+                        <th className="py-3.5 px-4">Thành Viên</th>
+                        <th className="py-3.5 px-3 text-center w-28">Booyah!</th>
+                        <th className="py-3.5 px-3 text-center w-20">Số Kill</th>
+                        <th className="py-3.5 px-4 text-center w-28">Tổng Điểm</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/20 text-xs sm:text-sm">
-                      {ranks.map((r, index) => {
+                      {ranks.slice(0, 12).map((r, index) => {
                         const isTop1 = r.rank === 1;
                         const isTop2 = r.rank === 2;
                         const isTop3 = r.rank === 3;
@@ -1213,21 +1252,21 @@ export default function ScoreboardsPage() {
                         return (
                           <tr 
                             key={r.rank}
-                            className={`transition-colors hover:bg-white/[0.02] ${
+                            className={`transition-colors hover:bg-white/[0.04] ${
                               isTop1 
-                                ? "bg-amber-500/[0.08]" 
+                                ? "bg-amber-500/[0.12] border-l-4 border-l-amber-500" 
                                 : isTop2 
-                                ? "bg-slate-400/[0.05]" 
+                                ? "bg-slate-400/[0.08] border-l-4 border-l-slate-400" 
                                 : isTop3 
-                                ? "bg-amber-700/[0.05]" 
+                                ? "bg-amber-700/[0.08] border-l-4 border-l-amber-700" 
                                 : ""
                             }`}
                           >
-                            <td className="py-3 px-3 text-center font-black">
+                            <td className="py-3.5 px-4 text-center font-black">
                               <span 
-                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg font-black text-xs ${
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-xs ${
                                   isTop1 
-                                    ? "bg-amber-500 text-black shadow-md shadow-amber-500/40" 
+                                    ? "bg-amber-500 text-black shadow-lg shadow-amber-500/50" 
                                     : isTop2 
                                     ? "bg-slate-300 text-black" 
                                     : isTop3 
@@ -1239,26 +1278,26 @@ export default function ScoreboardsPage() {
                               </span>
                             </td>
 
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-4">
                               <Input 
                                 placeholder={`Đội slot #${r.rank}`}
                                 value={r.teamName || ""}
                                 onChange={(e) => handleSingleTeamNameChange(index, e.target.value)}
-                                className="h-7 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-amber-500"
+                                className="h-8 text-xs font-bold bg-background/60 border-border/50 focus-visible:ring-amber-500 text-white"
                               />
                             </td>
 
-                            <td className="py-3 px-3">
-                              <div className="flex flex-wrap gap-1">
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-wrap gap-1.5">
                                 {showNames ? (
                                   r.accountNames.map((name, i) => (
-                                    <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/40 text-[11px] font-medium text-foreground">
+                                    <span key={i} className="px-2 py-0.5 rounded bg-black/50 border border-border/40 text-[11px] font-medium text-foreground">
                                       {name}
                                     </span>
                                   ))
                                 ) : (
                                   r.playerAccountIds.map((id, i) => (
-                                    <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/40 text-[11px] font-mono text-muted-foreground">
+                                    <span key={i} className="px-2 py-0.5 rounded bg-black/50 border border-border/40 text-[11px] font-mono text-muted-foreground">
                                       {id}
                                     </span>
                                   ))
@@ -1266,25 +1305,25 @@ export default function ScoreboardsPage() {
                               </div>
                             </td>
 
-                            <td className="py-3 px-3 text-center">
+                            <td className="py-3.5 px-3 text-center">
                               {r.booyah > 0 ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                                  <Sparkles className="w-3 h-3" /> Booyah!
+                                <span className="inline-flex items-center gap-1 text-xs font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                                  <Sparkles className="w-3.5 h-3.5" /> Booyah!
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground text-xs font-mono">0</span>
                               )}
                             </td>
 
-                            <td className="py-3 px-3 text-center">
-                              <span className="inline-flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-red-400">
-                                <Crosshair className="w-3 h-3" />
+                            <td className="py-3.5 px-3 text-center">
+                              <span className="inline-flex items-center gap-1 font-mono font-bold text-sm text-red-400">
+                                <Crosshair className="w-3.5 h-3.5" />
                                 {r.kill}
                               </span>
                             </td>
 
-                            <td className="py-3 px-3 text-center">
-                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-white/10 font-mono font-black text-sm sm:text-base text-amber-300 border border-amber-500/30">
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="inline-block px-3 py-1 rounded-md bg-white/10 font-mono font-black text-base text-amber-300 border border-amber-500/30">
                                 {r.score}
                               </span>
                             </td>
@@ -1298,13 +1337,13 @@ export default function ScoreboardsPage() {
             ) : null
           )}
 
-          {/* VIEW MODE 2: MULTI-MATCH AGGREGATED SCOREBOARD */}
+          {/* VIEW MODE 2: MULTI-MATCH AGGREGATED SCOREBOARD (EXACT 12 TEAMS) */}
           {viewMode === "multi" && (
             loadingMultiMatches ? (
               <div className="flex flex-col items-center justify-center p-12 space-y-3 bg-card/20 rounded-2xl border border-border/30">
                 <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
                 <p className="text-xs sm:text-sm font-medium text-muted-foreground animate-pulse">
-                  Đang tính toán và tổng hợp điểm từ {selectedMatchIds.length} trận đấu...
+                  Đang tính toán và tổng hợp 12 đội từ {selectedMatchIds.length} trận đấu...
                 </p>
               </div>
             ) : aggregatedTeams.length > 0 ? (
@@ -1315,7 +1354,7 @@ export default function ScoreboardsPage() {
                       <div className="flex items-center gap-2">
                         <Crown className="w-5 h-5 text-yellow-400 shrink-0" />
                         <CardTitle className="text-base sm:text-xl font-black uppercase text-white tracking-wide">
-                          Bảng Tổng Hợp ({selectedMatchIds.length} Trận)
+                          Bảng Tổng Hợp 12 Đội ({selectedMatchIds.length} Trận)
                         </CardTitle>
                         {cprThreshold > 0 && (
                           <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">
@@ -1324,7 +1363,7 @@ export default function ScoreboardsPage() {
                         )}
                       </div>
                       <CardDescription className="text-xs mt-0.5">
-                        Cộng dồn điểm & kill qua {selectedMatchIds.length} trận đấu
+                        Cộng dồn điểm & kill qua {selectedMatchIds.length} trận đấu (Chuẩn 12 Đội)
                       </CardDescription>
                     </div>
 
@@ -1336,31 +1375,31 @@ export default function ScoreboardsPage() {
                         className="text-xs h-8 gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black uppercase shadow-lg shadow-purple-500/30 flex-1 md:flex-none"
                       >
                         {exportingPng ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-                        Tải Ảnh PNG
+                        Tải Ảnh Bảng Tổng (2K Siêu Nét)
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
 
                 <CardContent className="p-0 overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[700px]">
+                  <table className="w-full text-left border-collapse min-w-[720px]">
                     <thead>
-                      <tr className="bg-black/60 border-b border-border/40 text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground font-black">
-                        <th className="py-3 px-3 text-center w-14">Hạng</th>
-                        <th className="py-3 px-3 w-36">Tên Đội</th>
-                        <th className="py-3 px-3">Thành Viên</th>
+                      <tr className="bg-neutral-950/80 border-b border-border/50 text-[11px] uppercase tracking-wider text-muted-foreground font-black">
+                        <th className="py-3.5 px-3 text-center w-14">Hạng</th>
+                        <th className="py-3.5 px-4 w-44">Đội Tuyển</th>
+                        <th className="py-3.5 px-4">Thành Viên</th>
                         {selectedMatchIds.map((mId, i) => (
-                          <th key={mId} className="py-3 px-2 text-center text-[10px] w-16">
-                            T #{i + 1}
+                          <th key={mId} className="py-3.5 px-2.5 text-center text-[10px] w-20">
+                            Trận #{i + 1}
                           </th>
                         ))}
-                        <th className="py-3 px-2 text-center w-14">Booyah</th>
-                        <th className="py-3 px-2 text-center w-16">Kill</th>
-                        <th className="py-3 px-3 text-center w-24 bg-purple-500/10 text-purple-300">Tổng Điểm</th>
+                        <th className="py-3.5 px-2.5 text-center w-16">Booyah</th>
+                        <th className="py-3.5 px-2.5 text-center w-20">Tổng Kill</th>
+                        <th className="py-3.5 px-4 text-center w-28 bg-purple-500/10 text-purple-300">Tổng Điểm</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/20 text-xs sm:text-sm">
-                      {aggregatedTeams.map((team, index) => {
+                      {aggregatedTeams.slice(0, 12).map((team, index) => {
                         const isTop1 = team.finalRank === 1;
                         const isTop2 = team.finalRank === 2;
                         const isTop3 = team.finalRank === 3;
@@ -1368,21 +1407,21 @@ export default function ScoreboardsPage() {
                         return (
                           <tr 
                             key={team.teamKey}
-                            className={`transition-colors hover:bg-white/[0.02] ${
+                            className={`transition-colors hover:bg-white/[0.04] ${
                               isTop1 
-                                ? "bg-amber-500/[0.08]" 
+                                ? "bg-amber-500/[0.12] border-l-4 border-l-amber-500" 
                                 : isTop2 
-                                ? "bg-slate-400/[0.05]" 
+                                ? "bg-slate-400/[0.08] border-l-4 border-l-slate-400" 
                                 : isTop3 
-                                ? "bg-amber-700/[0.05]" 
+                                ? "bg-amber-700/[0.08] border-l-4 border-l-amber-700" 
                                 : ""
                             }`}
                           >
-                            <td className="py-3 px-3 text-center font-black">
+                            <td className="py-3.5 px-3 text-center font-black">
                               <span 
-                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg font-black text-xs ${
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-xs ${
                                   isTop1 
-                                    ? "bg-amber-500 text-black shadow-md shadow-amber-500/40" 
+                                    ? "bg-amber-500 text-black shadow-lg shadow-amber-500/50" 
                                     : isTop2 
                                     ? "bg-slate-300 text-black" 
                                     : isTop3 
@@ -1394,19 +1433,19 @@ export default function ScoreboardsPage() {
                               </span>
                             </td>
 
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-4">
                               <Input 
                                 placeholder={`Đội slot #${team.finalRank}`}
                                 value={team.teamName || ""}
                                 onChange={(e) => handleAggregatedTeamNameChange(index, e.target.value)}
-                                className="h-7 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-purple-500"
+                                className="h-8 text-xs font-bold bg-background/60 border-border/50 focus-visible:ring-purple-500 text-white"
                               />
                             </td>
 
-                            <td className="py-3 px-3">
+                            <td className="py-3.5 px-4">
                               <div className="flex flex-wrap gap-1">
                                 {team.accountNames.map((name, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/30 text-[10px] font-medium">
+                                  <span key={i} className="px-1.5 py-0.5 rounded bg-black/50 border border-border/30 text-[11px] font-medium">
                                     {name}
                                   </span>
                                 ))}
@@ -1416,7 +1455,7 @@ export default function ScoreboardsPage() {
                             {selectedMatchIds.map((mId) => {
                               const matchStat = team.matchScores[mId];
                               return (
-                                <td key={mId} className="py-3 px-2 text-center font-mono text-xs">
+                                <td key={mId} className="py-3.5 px-2.5 text-center font-mono text-xs">
                                   {matchStat ? (
                                     <div className="space-y-0.5">
                                       <span className="font-bold text-foreground">{matchStat.score}đ</span>
@@ -1429,16 +1468,16 @@ export default function ScoreboardsPage() {
                               );
                             })}
 
-                            <td className="py-3 px-2 text-center">
+                            <td className="py-3.5 px-2.5 text-center">
                               <span className="font-mono font-bold text-amber-400">{team.totalBooyah}</span>
                             </td>
 
-                            <td className="py-3 px-2 text-center">
+                            <td className="py-3.5 px-2.5 text-center">
                               <span className="font-mono font-bold text-red-400">{team.totalKill}</span>
                             </td>
 
-                            <td className="py-3 px-3 text-center bg-purple-500/10">
-                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-purple-500/30 font-mono font-black text-sm sm:text-base text-yellow-300 border border-purple-500/40">
+                            <td className="py-3.5 px-4 text-center bg-purple-500/10">
+                              <span className="inline-block px-3 py-1 rounded-md bg-purple-500/30 font-mono font-black text-base text-yellow-300 border border-purple-500/40">
                                 {team.totalScore}
                               </span>
                             </td>
@@ -1577,9 +1616,9 @@ export default function ScoreboardsPage() {
 
       {/* MOBILE & DESKTOP IMAGE PREVIEW MODAL */}
       {previewImageUrl && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
-          <div className="bg-neutral-900 border border-amber-500/40 rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
-            <div className="p-3 sm:p-4 border-b border-border/40 flex items-center justify-between bg-black/50">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+          <div className="bg-neutral-950 border border-amber-500/50 rounded-2xl max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            <div className="p-3 sm:p-4 border-b border-border/40 flex items-center justify-between bg-black/60">
               <div className="flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-amber-400" />
                 <h3 className="font-bold text-white text-sm sm:text-base">{previewImageTitle}</h3>
@@ -1592,11 +1631,11 @@ export default function ScoreboardsPage() {
               </button>
             </div>
 
-            <div className="p-3 overflow-y-auto flex-1 flex flex-col items-center bg-black/30">
+            <div className="p-3 overflow-y-auto flex-1 flex flex-col items-center bg-black/40">
               <img 
                 src={previewImageUrl} 
                 alt="Bảng điểm PNG" 
-                className="w-full h-auto max-h-[60vh] object-contain rounded-lg border border-border/40 shadow-xl select-all"
+                className="w-full h-auto max-h-[62vh] object-contain rounded-lg border border-border/40 shadow-2xl select-all"
               />
               <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2 text-left">
                 <Smartphone className="w-4 h-4 shrink-0 text-amber-400" />
@@ -1604,7 +1643,7 @@ export default function ScoreboardsPage() {
               </div>
             </div>
 
-            <div className="p-3 sm:p-4 border-t border-border/40 bg-black/50 flex items-center justify-end gap-2">
+            <div className="p-3 sm:p-4 border-t border-border/40 bg-black/60 flex items-center justify-end gap-2">
               <Button 
                 variant="outline"
                 size="sm"
@@ -1616,7 +1655,7 @@ export default function ScoreboardsPage() {
               <a 
                 href={previewImageUrl} 
                 download="bang-diem.png"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase shadow-md transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs uppercase shadow-md transition-colors"
               >
                 <Download className="w-3.5 h-3.5" /> Tải về bang-diem.png
               </a>
