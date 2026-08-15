@@ -24,7 +24,9 @@ import {
   X,
   Smartphone,
   Download,
-  ShieldAlert
+  Ban,
+  RotateCcw,
+  Target
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +61,10 @@ interface AggregatedTeam {
   totalKill: number;
   totalScore: number;
   finalRank: number;
+  // CPR tracking
+  cprReachedAtMatch?: number; // Trận mà đội chạm mốc CPR
+  isCprChampion?: boolean;    // Đội đã chạm mốc CPR và thắng Booyah ở trận sau
+  cprWinMatchIndex?: number;  // Trận mà đội thắng Booyah sau khi có CPR
 }
 
 // 24h Time options for dropdowns (every 30 mins)
@@ -85,6 +91,10 @@ export default function ScoreboardsPage() {
   const [searchingMatches, setSearchingMatches] = useState(false);
   const [matches, setMatches] = useState<MatchItem[]>([]);
 
+  // Hủy trận / Xóa trận lỗi (Remake match removal)
+  const [cancelledMatchIds, setCancelledMatchIds] = useState<string[]>([]);
+  const [removeMatchInput, setRemoveMatchInput] = useState("");
+
   // Mode: Single Match vs Multi Match (4 matches / 5 matches CPR)
   const [viewMode, setViewMode] = useState<"single" | "multi">("single");
   const [selectedMatchIds, setSelectedMatchIds] = useState<string[]>([]);
@@ -95,10 +105,12 @@ export default function ScoreboardsPage() {
   const [ranks, setRanks] = useState<RankItem[]>([]);
   const [showNames, setShowNames] = useState(true);
 
-  // Multi-match aggregated state
+  // Multi-match aggregated state & CPR
   const [loadingMultiMatches, setLoadingMultiMatches] = useState(false);
   const [aggregatedTeams, setAggregatedTeams] = useState<AggregatedTeam[]>([]);
-  const [cprThreshold, setCprThreshold] = useState<number>(0);
+  const [cprThreshold, setCprThreshold] = useState<number>(80); // Mốc CPR tùy chỉnh
+  const [cprEnabled, setCprEnabled] = useState<boolean>(false);
+  const [cprThresholdInput, setCprThresholdInput] = useState<string>("80");
   const [exportingPng, setExportingPng] = useState(false);
 
   // Mobile Image Preview Modal
@@ -169,6 +181,7 @@ export default function ScoreboardsPage() {
 
     setSearchingMatches(true);
     setMatches([]);
+    setCancelledMatchIds([]);
     setRanks([]);
     setAggregatedTeams([]);
     setSelectedSingleMatchId(null);
@@ -200,6 +213,43 @@ export default function ScoreboardsPage() {
     }
   };
 
+  // Toggle Hủy trận / Bỏ trận lỗi
+  const handleToggleCancelMatch = (matchId: string) => {
+    setCancelledMatchIds(prev => {
+      const isCancelled = prev.includes(matchId);
+      const next = isCancelled ? prev.filter(id => id !== matchId) : [...prev, matchId];
+      
+      // Auto remove from multi-match selection if cancelled
+      if (!isCancelled) {
+        setSelectedMatchIds(old => {
+          const updated = old.filter(id => id !== matchId);
+          if (updated.length > 0) {
+            aggregateMultipleMatches(updated);
+          }
+          return updated;
+        });
+        toast.info("Đã bỏ trận lỗi này khỏi danh sách tính điểm.");
+      } else {
+        toast.success("Đã khôi phục lại trận đấu.");
+      }
+      return next;
+    });
+  };
+
+  // Quick Remove Match from input (VD: nhập "3" để bỏ trận 3)
+  const handleApplyRemoveMatch = () => {
+    const matchNum = parseInt(removeMatchInput.trim(), 10);
+    if (isNaN(matchNum) || matchNum < 1 || matchNum > matches.length) {
+      toast.error(`Vui lòng nhập số trận hợp lệ từ 1 đến ${matches.length}`);
+      return;
+    }
+    const targetMatch = matches[matchNum - 1];
+    if (targetMatch) {
+      handleToggleCancelMatch(targetMatch.id);
+      setRemoveMatchInput("");
+    }
+  };
+
   // Select Single Match (Max 12 Teams)
   const handleSelectSingleMatch = async (matchId: string) => {
     setViewMode("single");
@@ -213,7 +263,6 @@ export default function ScoreboardsPage() {
       });
 
       if (res.success && res.match?.ranks) {
-        // Enforce MAX 12 teams
         const valid12 = (res.match.ranks as RankItem[]).slice(0, 12);
         setRanks(valid12);
         toast.success(`Đã tải dữ liệu trận #${matchId}`);
@@ -229,6 +278,11 @@ export default function ScoreboardsPage() {
 
   // Toggle match in multi-match selection
   const handleToggleMultiMatch = (matchId: string) => {
+    if (cancelledMatchIds.includes(matchId)) {
+      toast.error("Trận này đang bị đánh dấu HỦY/LỖI. Hãy khôi phục trước khi chọn.");
+      return;
+    }
+
     setSelectedMatchIds(prev => {
       const exists = prev.includes(matchId);
       const next = exists ? prev.filter(id => id !== matchId) : [...prev, matchId];
@@ -243,20 +297,41 @@ export default function ScoreboardsPage() {
 
   // Quick Aggregate Actions (4 matches / 5 matches CPR / All)
   const handleQuickAggregate = (count: number, isCpr: boolean = false) => {
-    if (matches.length === 0) return;
-    const selected = matches.slice(0, count).map(m => m.id);
+    // Filter out cancelled matches
+    const validMatches = matches.filter(m => !cancelledMatchIds.includes(m.id));
+    if (validMatches.length === 0) {
+      toast.error("Không có trận đấu hợp lệ nào!");
+      return;
+    }
+
+    const selected = validMatches.slice(0, count).map(m => m.id);
     setSelectedMatchIds(selected);
     setViewMode("multi");
+    
+    const parsedThreshold = Number(cprThresholdInput) || 80;
     if (isCpr) {
-      setCprThreshold(80);
+      setCprEnabled(true);
+      setCprThreshold(parsedThreshold);
     } else {
-      setCprThreshold(0);
+      setCprEnabled(false);
     }
-    aggregateMultipleMatches(selected);
+    aggregateMultipleMatches(selected, isCpr, parsedThreshold);
   };
 
-  // Aggregate Multiple Matches Algorithm (Fuzzy Match & MAX 12 Teams)
-  const aggregateMultipleMatches = async (matchIds: string[]) => {
+  // Change CPR threshold
+  const handleCprThresholdChange = (val: string) => {
+    setCprThresholdInput(val);
+    const num = Number(val);
+    if (!isNaN(num) && num > 0) {
+      setCprThreshold(num);
+      if (cprEnabled && selectedMatchIds.length > 0) {
+        aggregateMultipleMatches(selectedMatchIds, true, num);
+      }
+    }
+  };
+
+  // Aggregate Multiple Matches Algorithm with Smart CPR & Fuzzy Match
+  const aggregateMultipleMatches = async (matchIds: string[], useCpr = cprEnabled, threshold = cprThreshold) => {
     if (matchIds.length === 0) return;
     setViewMode("multi");
     setLoadingMultiMatches(true);
@@ -268,11 +343,12 @@ export default function ScoreboardsPage() {
 
       const teamsList: AggregatedTeam[] = [];
 
+      // Pass 1: Build & Merge Teams
       detailsList.forEach((res, matchIdx) => {
         if (!res.success || !res.match?.ranks) return;
         const currentMatchId = matchIds[matchIdx];
 
-        res.match.ranks.slice(0, 12).forEach((r: RankItem, rankIndex: number) => {
+        res.match.ranks.slice(0, 12).forEach((r: RankItem) => {
           const currentIds = (r.playerAccountIds || []).filter(Boolean);
           const currentNames = (r.accountNames || []).filter(Boolean);
 
@@ -337,8 +413,39 @@ export default function ScoreboardsPage() {
         });
       });
 
-      // Sort: Total Score DESC -> Total Kill DESC -> Total Booyah DESC
+      // Pass 2: Champion Rush (CPR) Evaluation
+      if (useCpr && threshold > 0) {
+        teamsList.forEach(team => {
+          let runningScore = 0;
+          let reachedCpr = false;
+
+          matchIds.forEach((mId, idx) => {
+            const matchStat = team.matchScores[mId];
+            if (!matchStat) return;
+
+            // Nếu đội đã chạm mốc CPR trước trận này VÀ giành Booyah ở trận này -> Vô địch CPR!
+            if (reachedCpr && matchStat.booyah > 0 && !team.isCprChampion) {
+              team.isCprChampion = true;
+              team.cprWinMatchIndex = idx + 1;
+            }
+
+            runningScore += matchStat.score || 0;
+
+            // Kiểm tra xem đội đã chạm mốc CPR chưa
+            if (!reachedCpr && runningScore >= threshold) {
+              reachedCpr = true;
+              team.cprReachedAtMatch = idx + 1;
+            }
+          });
+        });
+      }
+
+      // Sort: CPR Champion first -> Total Score DESC -> Total Kill DESC -> Total Booyah DESC
       const sortedTeams = teamsList.sort((a, b) => {
+        if (useCpr) {
+          if (a.isCprChampion && !b.isCprChampion) return -1;
+          if (!a.isCprChampion && b.isCprChampion) return 1;
+        }
         if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
         if (b.totalKill !== a.totalKill) return b.totalKill - a.totalKill;
         return b.totalBooyah - a.totalBooyah;
@@ -414,7 +521,7 @@ export default function ScoreboardsPage() {
     }, "image/png");
   };
 
-  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (SINGLE MATCH - EXACT 12 TEAMS) ===
+  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (SINGLE MATCH) ===
   const downloadSingleMatchPng = async () => {
     const valid12 = ranks.slice(0, 12);
     if (valid12.length === 0) return;
@@ -425,7 +532,6 @@ export default function ScoreboardsPage() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // 2K Ultra HD resolution for extreme sharpness
       const width = 2400;
       const height = 1420;
       canvas.width = width;
@@ -447,12 +553,11 @@ export default function ScoreboardsPage() {
       ctx.fillStyle = glowTop;
       ctx.fillRect(0, 0, width, height);
 
-      // Corner Brackets
+      // Outer & Inner Borders
       ctx.strokeStyle = "rgba(245, 158, 11, 0.5)";
       ctx.lineWidth = 6;
       ctx.strokeRect(45, 45, width - 90, height - 90);
 
-      // Inner Border
       ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
       ctx.lineWidth = 2;
       ctx.strokeRect(55, 55, width - 110, height - 110);
@@ -463,7 +568,6 @@ export default function ScoreboardsPage() {
       ctx.textAlign = "center";
       ctx.fillText("BẢNG ĐIỂM CHI TIẾT TRẬN ĐẤU", width / 2, 125);
 
-      // Subtitle
       ctx.fillStyle = "#f59e0b";
       ctx.font = "bold 24px monospace";
       ctx.fillText(`MÃ TRẬN: #${selectedSingleMatchId || "GARENA"}   |   FREE FIRE ESPORTS TOURNAMENT`, width / 2, 170);
@@ -500,7 +604,6 @@ export default function ScoreboardsPage() {
         const isTop2 = r.rank === 2;
         const isTop3 = r.rank === 3;
 
-        // Card Container Background
         if (isTop1) {
           const goldRowGrad = ctx.createLinearGradient(startX, y, startX + tableWidth, y);
           goldRowGrad.addColorStop(0, "rgba(245, 158, 11, 0.28)");
@@ -515,7 +618,6 @@ export default function ScoreboardsPage() {
         }
         ctx.fillRect(startX, y, tableWidth, rowHeight - 8);
 
-        // Row Border
         ctx.strokeStyle = isTop1 
           ? "rgba(245, 158, 11, 0.8)" 
           : isTop2 
@@ -559,7 +661,7 @@ export default function ScoreboardsPage() {
         const teamDisplayName = r.teamName || `Đội Slot #${r.rank}`;
         ctx.fillText(teamDisplayName.slice(0, 24), startX + 170, y + 45);
 
-        // Members Roster
+        // Members
         ctx.fillStyle = "#94a3b8";
         ctx.font = "18px 'Segoe UI', Inter, sans-serif";
         const memberText = (showNames ? r.accountNames : r.playerAccountIds).slice(0, 4).join("   •   ");
@@ -602,7 +704,7 @@ export default function ScoreboardsPage() {
     }
   };
 
-  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (MULTI-MATCH - EXACT 12 TEAMS) ===
+  // === ULTRA-CRISP 2K CANVAS PNG EXPORTER (MULTI-MATCH & CPR) ===
   const downloadMultiMatchPng = async () => {
     const valid12 = aggregatedTeams.slice(0, 12);
     if (valid12.length === 0) return;
@@ -627,19 +729,18 @@ export default function ScoreboardsPage() {
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, width, height);
 
-      // Purple Glow Top
+      // Top Glow
       const glowTop = ctx.createRadialGradient(width / 2, 80, 20, width / 2, 80, 700);
-      glowTop.addColorStop(0, "rgba(168, 85, 247, 0.28)");
+      glowTop.addColorStop(0, cprEnabled ? "rgba(234, 88, 12, 0.35)" : "rgba(168, 85, 247, 0.28)");
       glowTop.addColorStop(1, "transparent");
       ctx.fillStyle = glowTop;
       ctx.fillRect(0, 0, width, height);
 
-      // Corner Brackets
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.6)";
+      // Borders
+      ctx.strokeStyle = cprEnabled ? "rgba(245, 158, 11, 0.7)" : "rgba(168, 85, 247, 0.6)";
       ctx.lineWidth = 6;
       ctx.strokeRect(45, 45, width - 90, height - 90);
 
-      // Inner Border
       ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
       ctx.lineWidth = 2;
       ctx.strokeRect(55, 55, width - 110, height - 110);
@@ -648,12 +749,12 @@ export default function ScoreboardsPage() {
       ctx.fillStyle = "#ffffff";
       ctx.font = "900 48px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "center";
-      const title = cprThreshold > 0 
-        ? `BẢNG TỔNG HỢP ĐIỂM (CHAMPION RUSH - ${selectedMatchIds.length} TRẬN)`
+      const title = cprEnabled 
+        ? `BẢNG TỔNG HỢP ĐIỂM (CHAMPION RUSH - MỐC ${cprThreshold} ĐIỂM)`
         : `BẢNG TỔNG HỢP ĐIỂM TOÀN GIẢI (${selectedMatchIds.length} TRẬN)`;
       ctx.fillText(title, width / 2, 125);
 
-      ctx.fillStyle = "#c084fc";
+      ctx.fillStyle = cprEnabled ? "#fbbf24" : "#c084fc";
       ctx.font = "bold 24px monospace";
       ctx.fillText(`CỘNG DỒN TỔNG ĐIỂM TỪ ${selectedMatchIds.length} TRẬN ĐẤU  |  FREE FIRE ESPORTS`, width / 2, 170);
 
@@ -663,14 +764,14 @@ export default function ScoreboardsPage() {
       const tableWidth = width - 170;
       const rowHeight = 78;
 
-      // Table Header Row
-      ctx.fillStyle = "rgba(168, 85, 247, 0.28)";
+      // Header Row
+      ctx.fillStyle = cprEnabled ? "rgba(245, 158, 11, 0.25)" : "rgba(168, 85, 247, 0.28)";
       ctx.fillRect(startX, startY, tableWidth, 60);
-      ctx.strokeStyle = "rgba(168, 85, 247, 0.8)";
+      ctx.strokeStyle = cprEnabled ? "rgba(245, 158, 11, 0.8)" : "rgba(168, 85, 247, 0.8)";
       ctx.lineWidth = 3;
       ctx.strokeRect(startX, startY, tableWidth, 60);
 
-      ctx.fillStyle = "#e9d5ff";
+      ctx.fillStyle = cprEnabled ? "#fef08a" : "#e9d5ff";
       ctx.font = "900 22px 'Segoe UI', Inter, sans-serif";
       ctx.textAlign = "left";
       ctx.fillText("HẠNG", startX + 30, startY + 38);
@@ -700,7 +801,13 @@ export default function ScoreboardsPage() {
         const isTop2 = team.finalRank === 2;
         const isTop3 = team.finalRank === 3;
 
-        if (isTop1) {
+        if (team.isCprChampion) {
+          const champGrad = ctx.createLinearGradient(startX, y, startX + tableWidth, y);
+          champGrad.addColorStop(0, "rgba(234, 88, 12, 0.45)");
+          champGrad.addColorStop(0.5, "rgba(245, 158, 11, 0.35)");
+          champGrad.addColorStop(1, "rgba(168, 85, 247, 0.3)");
+          ctx.fillStyle = champGrad;
+        } else if (isTop1) {
           const goldRowGrad = ctx.createLinearGradient(startX, y, startX + tableWidth, y);
           goldRowGrad.addColorStop(0, "rgba(245, 158, 11, 0.28)");
           goldRowGrad.addColorStop(1, "rgba(168, 85, 247, 0.15)");
@@ -714,19 +821,27 @@ export default function ScoreboardsPage() {
         }
         ctx.fillRect(startX, y, tableWidth, rowHeight - 8);
 
-        ctx.strokeStyle = isTop1 
+        ctx.strokeStyle = team.isCprChampion
+          ? "rgba(245, 158, 11, 1)"
+          : isTop1 
           ? "rgba(245, 158, 11, 0.8)" 
           : isTop2 
           ? "rgba(203, 213, 225, 0.4)" 
           : isTop3 
           ? "rgba(217, 119, 6, 0.4)" 
           : "rgba(255, 255, 255, 0.08)";
-        ctx.lineWidth = isTop1 ? 2.5 : 1.5;
+        ctx.lineWidth = team.isCprChampion ? 3.5 : isTop1 ? 2.5 : 1.5;
         ctx.strokeRect(startX, y, tableWidth, rowHeight - 8);
 
         // Rank Badge
         ctx.textAlign = "center";
-        if (isTop1) {
+        if (team.isCprChampion) {
+          ctx.fillStyle = "#ea580c";
+          ctx.fillRect(startX + 22, y + 12, 60, 46);
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "900 24px sans-serif";
+          ctx.fillText("👑", startX + 52, y + 45);
+        } else if (isTop1) {
           ctx.fillStyle = "#f59e0b";
           ctx.fillRect(startX + 22, y + 12, 60, 46);
           ctx.fillStyle = "#000000";
@@ -750,17 +865,28 @@ export default function ScoreboardsPage() {
           ctx.fillText(`#${team.finalRank}`, startX + 52, y + 45);
         }
 
-        // Team Name
+        // Team Name & CPR Badge
         ctx.textAlign = "left";
         ctx.fillStyle = isTop1 ? "#fef08a" : "#ffffff";
         ctx.font = "bold 24px 'Segoe UI', Inter, sans-serif";
-        ctx.fillText(team.teamName.slice(0, 20), startX + 160, y + 45);
+        const teamDisplayName = team.teamName.slice(0, 18);
+        ctx.fillText(teamDisplayName, startX + 160, y + 45);
+
+        if (team.isCprChampion) {
+          ctx.fillStyle = "#ea580c";
+          ctx.font = "bold 13px sans-serif";
+          ctx.fillText(`👑 VÔ ĐỊCH CHAMPION RUSH (T #${team.cprWinMatchIndex})`, startX + 160, y + 63);
+        } else if (team.cprReachedAtMatch) {
+          ctx.fillStyle = "#fbbf24";
+          ctx.font = "bold 13px sans-serif";
+          ctx.fillText(`🎯 ĐỦ ĐIỀU KIỆN KÍCH HOẠT CHAMPION RUSH (T #${team.cprReachedAtMatch})`, startX + 160, y + 63);
+        }
 
         // Members
         ctx.fillStyle = "#94a3b8";
         ctx.font = "17px 'Segoe UI', Inter, sans-serif";
         const members = team.accountNames.slice(0, 4).join("  •  ");
-        ctx.fillText(members.slice(0, 55), startX + 500, y + 44);
+        ctx.fillText(members.slice(0, 50), startX + 500, y + 44);
 
         // Scores per match
         selectedMatchIds.forEach((mId, idx) => {
@@ -895,7 +1021,7 @@ export default function ScoreboardsPage() {
               </span>
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 line-clamp-1">
-              Tự động tính điểm 4-5 trận & Xuất ảnh PNG 2K siêu nét
+              Tự động tính điểm 4-5 trận, Champion Rush tùy chỉnh & Xuất ảnh PNG 2K siêu nét
             </p>
           </div>
         </div>
@@ -1099,12 +1225,70 @@ export default function ScoreboardsPage() {
                 </div>
               </div>
 
-              {/* Match Buttons & Multi-Match Toolbar */}
+              {/* Match Buttons, Removal Tools & Multi-Match Toolbar */}
               {matches.length > 0 && (
-                <div className="pt-3 border-t border-border/40 space-y-2.5">
+                <div className="pt-3 border-t border-border/40 space-y-3">
+                  
+                  {/* CPR Threshold & Removal Controls */}
+                  <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                    {/* CPR Threshold Input */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-yellow-400 flex items-center gap-1">
+                        <Target className="w-3.5 h-3.5" /> Mốc Điểm CPR:
+                      </span>
+                      <Input 
+                        type="number"
+                        min="0"
+                        max="200"
+                        placeholder="80"
+                        value={cprThresholdInput}
+                        onChange={(e) => handleCprThresholdChange(e.target.value)}
+                        className="w-20 h-8 text-xs font-mono font-bold text-center bg-black/60 border-purple-500/40 focus-visible:ring-purple-500"
+                      />
+                      <div className="flex items-center gap-1">
+                        {[80, 70, 60, 50].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => handleCprThresholdChange(String(num))}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                              cprThresholdInput === String(num)
+                                ? "bg-amber-500 text-black border-amber-400"
+                                : "bg-black/40 text-muted-foreground border-border/40 hover:text-white"
+                            }`}
+                          >
+                            {num}đ
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Remove/Remake Match Input */}
+                    <div className="flex items-center gap-1.5 w-full md:w-auto">
+                      <span className="text-xs font-bold text-red-400 flex items-center gap-1 shrink-0">
+                        <Ban className="w-3.5 h-3.5" /> Bỏ trận lỗi:
+                      </span>
+                      <Input 
+                        placeholder="Số trận (VD: 3)"
+                        value={removeMatchInput}
+                        onChange={(e) => setRemoveMatchInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleApplyRemoveMatch()}
+                        className="w-28 h-8 text-xs font-mono bg-black/60 border-red-500/30 text-center"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleApplyRemoveMatch}
+                        className="h-8 text-xs border-red-500/40 text-red-300 hover:bg-red-500/20 px-2.5 font-bold"
+                      >
+                        Hủy
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
-                      Tìm thấy {matches.length} trận đấu:
+                      Danh sách {matches.length} trận đấu:
                     </Label>
 
                     <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
@@ -1122,7 +1306,7 @@ export default function ScoreboardsPage() {
                         onClick={() => handleQuickAggregate(5, true)}
                         className="text-xs h-7 gap-1 border-purple-500/40 text-purple-300 bg-purple-500/10 hover:bg-purple-500 hover:text-white font-bold flex-1 sm:flex-none"
                       >
-                        <Crown className="w-3.5 h-3.5" /> 5 Trận (CPR)
+                        <Crown className="w-3.5 h-3.5" /> 5 Trận (CPR {cprThresholdInput}đ)
                       </Button>
                       <Button
                         size="sm"
@@ -1130,7 +1314,7 @@ export default function ScoreboardsPage() {
                         onClick={() => handleQuickAggregate(matches.length, false)}
                         className="text-xs h-7 text-muted-foreground hover:text-white"
                       >
-                        Tất cả ({matches.length})
+                        Tất cả ({matches.length - cancelledMatchIds.length})
                       </Button>
                     </div>
                   </div>
@@ -1138,6 +1322,7 @@ export default function ScoreboardsPage() {
                   {/* Match Badges List */}
                   <div className="flex flex-wrap gap-1.5">
                     {matches.map((m, idx) => {
+                      const isCancelled = cancelledMatchIds.includes(m.id);
                       const isSingleSelected = viewMode === "single" && selectedSingleMatchId === m.id;
                       const isMultiSelected = viewMode === "multi" && selectedMatchIds.includes(m.id);
 
@@ -1145,25 +1330,29 @@ export default function ScoreboardsPage() {
                         <div
                           key={m.id}
                           className={`rounded-lg transition-all duration-200 flex items-center border overflow-hidden ${
-                            isSingleSelected
+                            isCancelled
+                              ? "bg-red-950/30 text-red-400 border-red-500/40 opacity-60 line-through"
+                              : isSingleSelected
                               ? "bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30 scale-105"
                               : isMultiSelected
                               ? "bg-purple-600/30 text-purple-200 border-purple-500 shadow-md"
                               : "bg-background/80 text-foreground border-border/60 hover:border-amber-500/60"
                           }`}
                         >
-                          <button
-                            type="button"
-                            onClick={() => handleToggleMultiMatch(m.id)}
-                            className="px-2 py-2 hover:bg-white/10 text-muted-foreground transition-colors"
-                            title="Chọn vào danh sách tính tổng điểm"
-                          >
-                            {selectedMatchIds.includes(m.id) ? (
-                              <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
-                            ) : (
-                              <Square className="w-3.5 h-3.5 opacity-50" />
-                            )}
-                          </button>
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMultiMatch(m.id)}
+                              className="px-2 py-2 hover:bg-white/10 text-muted-foreground transition-colors"
+                              title="Chọn vào danh sách tính tổng điểm"
+                            >
+                              {selectedMatchIds.includes(m.id) ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
+                              ) : (
+                                <Square className="w-3.5 h-3.5 opacity-50" />
+                              )}
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -1172,6 +1361,21 @@ export default function ScoreboardsPage() {
                           >
                             <span>Trận #{idx + 1}</span>
                             <span className="opacity-75 font-sans font-normal text-[10px]">({formatUnixTime(m.startTime)})</span>
+                            {isCancelled && <span className="text-[10px] text-red-400 normal-case no-underline font-bold">[HỦY]</span>}
+                          </button>
+
+                          {/* Toggle Cancel Match Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCancelMatch(m.id)}
+                            className="px-1.5 py-2 hover:bg-red-500/20 text-muted-foreground hover:text-red-400 transition-colors border-l border-border/20"
+                            title={isCancelled ? "Khôi phục lại trận đấu" : "Đánh dấu hủy/lỗi trận này"}
+                          >
+                            {isCancelled ? (
+                              <RotateCcw className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Ban className="w-3 h-3 opacity-60 hover:opacity-100" />
+                            )}
                           </button>
                         </div>
                       );
@@ -1217,7 +1421,6 @@ export default function ScoreboardsPage() {
                         {showNames ? "Hiện ID" : "Hiện Tên"}
                       </Button>
                       
-                      {/* Nút Tải Ảnh PNG (bang-diem.png) */}
                       <Button 
                         size="sm" 
                         disabled={exportingPng}
@@ -1337,7 +1540,7 @@ export default function ScoreboardsPage() {
             ) : null
           )}
 
-          {/* VIEW MODE 2: MULTI-MATCH AGGREGATED SCOREBOARD (EXACT 12 TEAMS) */}
+          {/* VIEW MODE 2: MULTI-MATCH AGGREGATED SCOREBOARD (EXACT 12 TEAMS & CPR) */}
           {viewMode === "multi" && (
             loadingMultiMatches ? (
               <div className="flex flex-col items-center justify-center p-12 space-y-3 bg-card/20 rounded-2xl border border-border/30">
@@ -1356,9 +1559,9 @@ export default function ScoreboardsPage() {
                         <CardTitle className="text-base sm:text-xl font-black uppercase text-white tracking-wide">
                           Bảng Tổng Hợp 12 Đội ({selectedMatchIds.length} Trận)
                         </CardTitle>
-                        {cprThreshold > 0 && (
-                          <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">
-                            CPR
+                        {cprEnabled && (
+                          <span className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-yellow-300 border border-amber-500/50 font-black flex items-center gap-1">
+                            <Target className="w-3 h-3 text-amber-400" /> CPR {cprThreshold}đ
                           </span>
                         )}
                       </div>
@@ -1408,7 +1611,9 @@ export default function ScoreboardsPage() {
                           <tr 
                             key={team.teamKey}
                             className={`transition-colors hover:bg-white/[0.04] ${
-                              isTop1 
+                              team.isCprChampion
+                                ? "bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-purple-500/20 border-l-4 border-l-orange-500"
+                                : isTop1 
                                 ? "bg-amber-500/[0.12] border-l-4 border-l-amber-500" 
                                 : isTop2 
                                 ? "bg-slate-400/[0.08] border-l-4 border-l-slate-400" 
@@ -1420,7 +1625,9 @@ export default function ScoreboardsPage() {
                             <td className="py-3.5 px-3 text-center font-black">
                               <span 
                                 className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-xs ${
-                                  isTop1 
+                                  team.isCprChampion
+                                    ? "bg-gradient-to-br from-amber-400 to-orange-600 text-black shadow-lg shadow-orange-500/50"
+                                    : isTop1 
                                     ? "bg-amber-500 text-black shadow-lg shadow-amber-500/50" 
                                     : isTop2 
                                     ? "bg-slate-300 text-black" 
@@ -1429,17 +1636,28 @@ export default function ScoreboardsPage() {
                                     : "bg-muted text-muted-foreground"
                                 }`}
                               >
-                                #{team.finalRank}
+                                {team.isCprChampion ? "👑" : `#${team.finalRank}`}
                               </span>
                             </td>
 
                             <td className="py-3.5 px-4">
-                              <Input 
-                                placeholder={`Đội slot #${team.finalRank}`}
-                                value={team.teamName || ""}
-                                onChange={(e) => handleAggregatedTeamNameChange(index, e.target.value)}
-                                className="h-8 text-xs font-bold bg-background/60 border-border/50 focus-visible:ring-purple-500 text-white"
-                              />
+                              <div className="space-y-1">
+                                <Input 
+                                  placeholder={`Đội slot #${team.finalRank}`}
+                                  value={team.teamName || ""}
+                                  onChange={(e) => handleAggregatedTeamNameChange(index, e.target.value)}
+                                  className="h-7 text-xs font-bold bg-background/60 border-border/50 focus-visible:ring-purple-500 text-white"
+                                />
+                                {team.isCprChampion ? (
+                                  <span className="inline-block px-1.5 py-0.5 rounded bg-orange-500/20 border border-orange-500/40 text-[10px] font-black text-orange-400">
+                                    👑 Vô Địch Champion Rush (Trận #{team.cprWinMatchIndex})
+                                  </span>
+                                ) : team.cprReachedAtMatch ? (
+                                  <span className="inline-block px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold text-amber-300">
+                                    🎯 Đủ điều kiện kích hoạt Champion Rush (Trận #{team.cprReachedAtMatch})
+                                  </span>
+                                ) : null}
+                              </div>
                             </td>
 
                             <td className="py-3.5 px-4">
