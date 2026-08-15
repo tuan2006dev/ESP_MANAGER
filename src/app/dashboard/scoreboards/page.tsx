@@ -21,7 +21,10 @@ import {
   CheckSquare,
   Square,
   Crown,
-  ImageIcon
+  ImageIcon,
+  Share2,
+  X,
+  Smartphone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +100,10 @@ export default function ScoreboardsPage() {
   const [aggregatedTeams, setAggregatedTeams] = useState<AggregatedTeam[]>([]);
   const [cprThreshold, setCprThreshold] = useState<number>(0);
   const [exportingPng, setExportingPng] = useState(false);
+
+  // Mobile Image Preview Modal
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewImageTitle, setPreviewImageTitle] = useState("");
 
   // Vmnghia State
   const [catalog, setCatalog] = useState<any[]>([]);
@@ -246,7 +253,7 @@ export default function ScoreboardsPage() {
     aggregateMultipleMatches(selected);
   };
 
-  // Aggregate Multiple Matches Algorithm
+  // Aggregate Multiple Matches Algorithm (Fuzzy Match)
   const aggregateMultipleMatches = async (matchIds: string[]) => {
     if (matchIds.length === 0) return;
     setViewMode("multi");
@@ -267,22 +274,16 @@ export default function ScoreboardsPage() {
           const currentIds = (r.playerAccountIds || []).filter(Boolean);
           const currentNames = (r.accountNames || []).filter(Boolean);
 
-          // Tìm xem đội này đã xuất hiện trong danh sách chưa (ghép đội thông minh qua tên/ID tuyển thủ)
           let bestMatch: AggregatedTeam | null = null;
           let highestOverlap = 0;
 
           for (const existing of teamsList) {
-            // Đội này chưa có điểm ở trận hiện tại
             if (existing.matchScores[currentMatchId]) continue;
 
-            // Đếm số ID trùng
             const matchingIds = currentIds.filter(id => existing.playerAccountIds.includes(id)).length;
-            // Đếm số Tên tuyển thủ trùng
             const matchingNames = currentNames.filter(name => existing.accountNames.includes(name)).length;
-
             const matchOverlap = Math.max(matchingIds, matchingNames);
 
-            // Nếu trùng từ 2 tuyển thủ trở lên (hoặc >= 1 nếu phòng ít người), ghép vào đúng đội đó
             if (matchOverlap >= 2 && matchOverlap > highestOverlap) {
               highestOverlap = matchOverlap;
               bestMatch = existing;
@@ -290,7 +291,6 @@ export default function ScoreboardsPage() {
           }
 
           if (bestMatch) {
-            // Ghép điểm trận này vào đội cũ
             bestMatch.matchScores[currentMatchId] = {
               score: r.score,
               kill: r.kill,
@@ -301,7 +301,6 @@ export default function ScoreboardsPage() {
             bestMatch.totalKill += r.kill || 0;
             bestMatch.totalScore += r.score || 0;
 
-            // Bổ sung thành viên mới (nếu có tuyển thủ dự bị)
             currentNames.forEach(name => {
               if (!bestMatch!.accountNames.includes(name)) {
                 bestMatch!.accountNames.push(name);
@@ -313,7 +312,6 @@ export default function ScoreboardsPage() {
               }
             });
           } else {
-            // Tạo đội mới
             const newTeam: AggregatedTeam = {
               teamKey: `team_${teamsList.length + 1}`,
               teamName: r.teamName || `Đội Slot #${teamsList.length + 1}`,
@@ -337,7 +335,6 @@ export default function ScoreboardsPage() {
         });
       });
 
-      // Sắp xếp thứ hạng tổng: Tổng điểm DESC -> Tổng Kill DESC -> Tổng Booyah DESC
       const sortedTeams = teamsList.sort((a, b) => {
         if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
         if (b.totalKill !== a.totalKill) return b.totalKill - a.totalKill;
@@ -375,8 +372,48 @@ export default function ScoreboardsPage() {
     });
   };
 
-  // === CANVAS HIGH RESOLUTION PNG EXPORTER ===
-  const downloadSingleMatchPng = () => {
+  // Universal File Downloader & Mobile Share Handler
+  const triggerUniversalDownload = async (canvas: HTMLCanvasElement, filename: string, title: string) => {
+    const dataUrl = canvas.toDataURL("image/png");
+    setPreviewImageUrl(dataUrl);
+    setPreviewImageTitle(title);
+
+    // Try blob download and Web Share API for Mobile
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+
+      const file = new File([blob], `${filename}.png`, { type: "image/png" });
+
+      // If on mobile and Web Share API is available with file support
+      if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: title,
+            text: "Bảng điểm thi đấu Free Fire Esports",
+          });
+          toast.success("Đã mở chia sẻ & lưu ảnh!");
+          return;
+        } catch {
+          // fallback to normal download if user cancelled share sheet
+        }
+      }
+
+      // Standard desktop & mobile browser direct download trigger
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.download = `${filename}.png`;
+      link.href = blobUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      toast.success("Đã tạo ảnh bang-diem.png thành công!");
+    }, "image/png");
+  };
+
+  // === CANVAS HIGH RESOLUTION PNG EXPORTER (SINGLE MATCH) ===
+  const downloadSingleMatchPng = async () => {
     if (ranks.length === 0) return;
     setExportingPng(true);
 
@@ -390,7 +427,7 @@ export default function ScoreboardsPage() {
       canvas.width = width;
       canvas.height = height;
 
-      // Background Gradient (Dark Esports Theme)
+      // Background Gradient
       const bgGrad = ctx.createLinearGradient(0, 0, width, height);
       bgGrad.addColorStop(0, "#0a0a0f");
       bgGrad.addColorStop(0.5, "#12131c");
@@ -403,12 +440,6 @@ export default function ScoreboardsPage() {
       glow1.addColorStop(0, "rgba(245, 158, 11, 0.15)");
       glow1.addColorStop(1, "transparent");
       ctx.fillStyle = glow1;
-      ctx.fillRect(0, 0, width, height);
-
-      const glow2 = ctx.createRadialGradient(width - 200, height - 100, 10, width - 200, height - 100, 600);
-      glow2.addColorStop(0, "rgba(234, 88, 12, 0.12)");
-      glow2.addColorStop(1, "transparent");
-      ctx.fillStyle = glow2;
       ctx.fillRect(0, 0, width, height);
 
       // Outer Border
@@ -458,7 +489,6 @@ export default function ScoreboardsPage() {
         const isTop2 = r.rank === 2;
         const isTop3 = r.rank === 3;
 
-        // Row background
         if (isTop1) {
           ctx.fillStyle = "rgba(245, 158, 11, 0.18)";
         } else if (isTop2) {
@@ -470,7 +500,6 @@ export default function ScoreboardsPage() {
         }
         ctx.fillRect(startX, y, tableWidth, rowHeight - 6);
 
-        // Row border
         ctx.strokeStyle = isTop1 ? "rgba(245, 158, 11, 0.6)" : "rgba(255, 255, 255, 0.08)";
         ctx.lineWidth = 1;
         ctx.strokeRect(startX, y, tableWidth, rowHeight - 6);
@@ -508,7 +537,7 @@ export default function ScoreboardsPage() {
         const teamDisplayName = r.teamName || `Đội Slot #${r.rank}`;
         ctx.fillText(teamDisplayName.slice(0, 24), startX + 130, y + 37);
 
-        // Member names
+        // Members
         ctx.fillStyle = "#94a3b8";
         ctx.font = "15px sans-serif";
         const memberText = (showNames ? r.accountNames : r.playerAccountIds).slice(0, 4).join(" • ");
@@ -543,12 +572,7 @@ export default function ScoreboardsPage() {
       ctx.textAlign = "center";
       ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 55);
 
-      // Download
-      const link = document.createElement("a");
-      link.download = `bang-diem-tran-${selectedSingleMatchId || "ff"}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      toast.success("Đã tải ảnh bảng điểm PNG thành công!");
+      await triggerUniversalDownload(canvas, "bang-diem", `Bảng Điểm Trận #${selectedSingleMatchId || "1"}`);
     } catch {
       toast.error("Không thể tạo ảnh PNG.");
     } finally {
@@ -556,8 +580,8 @@ export default function ScoreboardsPage() {
     }
   };
 
-  // Multi-Match PNG Exporter
-  const downloadMultiMatchPng = () => {
+  // === MULTI-MATCH PNG EXPORTER ===
+  const downloadMultiMatchPng = async () => {
     if (aggregatedTeams.length === 0) return;
     setExportingPng(true);
 
@@ -567,7 +591,7 @@ export default function ScoreboardsPage() {
       if (!ctx) return;
 
       const width = 1920;
-      const height = 1150;
+      const height = Math.max(1150, 240 + aggregatedTeams.length * 68);
       canvas.width = width;
       canvas.height = height;
 
@@ -738,13 +762,9 @@ export default function ScoreboardsPage() {
       ctx.fillStyle = "#64748b";
       ctx.font = "14px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỔNG HỢP TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 55);
+      ctx.fillText("HỆ THỐNG QUẢN LÝ ESPORTS • BẢNG ĐIỂM TỔNG HỢP TỰ ĐỘNG GARENA FREE FIRE", width / 2, height - 40);
 
-      const link = document.createElement("a");
-      link.download = `bang-tong-diem-${selectedMatchIds.length}-tran.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      toast.success("Đã tải ảnh bảng tổng điểm PNG thành công!");
+      await triggerUniversalDownload(canvas, "bang-diem", `Bảng Tổng Điểm ${selectedMatchIds.length} Trận`);
     } catch {
       toast.error("Không thể tạo ảnh PNG.");
     } finally {
@@ -821,36 +841,34 @@ export default function ScoreboardsPage() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
+    <div className="container mx-auto p-3 sm:p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6 max-w-7xl">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border/40 pb-5">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-              <Trophy className="w-7 h-7" />
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white uppercase flex items-center gap-2">
-                Hệ Thống Tính Điểm Giải Đấu
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold normal-case">
-                  Trực tiếp Garena
-                </span>
-              </h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Tự động trích xuất điểm từng trận, Tính tổng điểm 4-5 trận và Xuất ảnh PNG Full HD
-              </p>
-            </div>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-border/40 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0">
+            <Trophy className="w-6 h-6 md:w-7 md:h-7" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white uppercase flex flex-wrap items-center gap-2">
+              Hệ Thống Tính Điểm
+              <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold normal-case">
+                Trực tiếp Garena
+              </span>
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 line-clamp-1">
+              Tự động tính điểm 4-5 trận & Xuất ảnh PNG Full HD
+            </p>
           </div>
         </div>
 
         {/* Tab Selection */}
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full md:w-auto">
-          <TabsList className="grid grid-cols-2 w-full md:w-[320px] bg-background/80 border border-border/50">
-            <TabsTrigger value="garena" className="gap-2 data-[state=active]:bg-amber-500 data-[state=active]:text-black font-bold">
-              <Flame className="w-4 h-4" /> Garena (Free)
+          <TabsList className="grid grid-cols-2 w-full md:w-[320px] bg-background/80 border border-border/50 h-9">
+            <TabsTrigger value="garena" className="gap-1.5 text-xs data-[state=active]:bg-amber-500 data-[state=active]:text-black font-bold">
+              <Flame className="w-3.5 h-3.5" /> Garena (Free)
             </TabsTrigger>
-            <TabsTrigger value="vmnghia" className="gap-2 data-[state=active]:bg-primary font-semibold">
-              <Zap className="w-4 h-4" /> Vmnghia API
+            <TabsTrigger value="vmnghia" className="gap-1.5 text-xs data-[state=active]:bg-primary font-semibold">
+              <Zap className="w-3.5 h-3.5" /> Vmnghia API
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -858,35 +876,32 @@ export default function ScoreboardsPage() {
 
       {/* Tab 1: Garena Free */}
       {activeTab === "garena" && (
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           {/* Search Card */}
-          <Card className="border-amber-500/30 bg-gradient-to-b from-card/90 to-card/50 backdrop-blur-md shadow-2xl">
-            <CardHeader className="border-b border-border/40 pb-4">
+          <Card className="border-amber-500/30 bg-gradient-to-b from-card/95 to-card/60 backdrop-blur-md shadow-2xl">
+            <CardHeader className="border-b border-border/40 pb-3 p-4 sm:p-6">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <Flame className="w-5 h-5 text-amber-500" />
-                  <CardTitle className="text-lg text-white font-bold">Tìm Kiếm Trận Đấu</CardTitle>
+                  <Flame className="w-4 h-4 md:w-5 md:h-5 text-amber-500 shrink-0" />
+                  <CardTitle className="text-base sm:text-lg text-white font-bold">Tìm Kiếm Trận Đấu Custom Room</CardTitle>
                 </div>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={() => setShowCookieSetting(!showCookieSetting)}
-                  className="text-xs text-muted-foreground hover:text-white gap-1.5 h-8"
+                  className="text-xs text-muted-foreground hover:text-white gap-1 h-7 px-2"
                 >
                   <Settings2 className="w-3.5 h-3.5" />
-                  {showCookieSetting ? "Ẩn cấu hình Session" : "Cấu hình Session Cookie"}
+                  {showCookieSetting ? "Ẩn Session" : "Cấu hình Session Cookie"}
                 </Button>
               </div>
-              <CardDescription>
-                Chọn ngày và khung giờ dễ dàng để quét toàn bộ các trận đấu Custom Room
-              </CardDescription>
             </CardHeader>
 
-            <CardContent className="pt-6 space-y-5">
+            <CardContent className="pt-4 p-4 sm:p-6 space-y-4">
               {showCookieSetting && (
-                <div className="p-3.5 rounded-lg bg-background/70 border border-amber-500/20 space-y-2 mb-2">
+                <div className="p-3 rounded-lg bg-background/70 border border-amber-500/20 space-y-2 mb-2">
                   <Label htmlFor="cookie" className="text-xs font-semibold text-amber-300">
-                    Garena Session Cookie (Tùy chọn ghi đè nếu phiên hết hạn)
+                    Garena Session Cookie (Đã tự động lưu vào trình duyệt của bạn)
                   </Label>
                   <Input 
                     id="cookie"
@@ -896,17 +911,16 @@ export default function ScoreboardsPage() {
                     className="text-xs font-mono bg-black/40 border-amber-500/20"
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    Mặc định hệ thống đã có sẵn Session Cookie. Chỉ thay đổi khi Garena báo lỗi phiên đăng nhập.
+                    Mặc định hệ thống đã có sẵn Session Cookie. Bạn có thể dán cookie mới khi phiên đăng nhập Garena hết hạn.
                   </p>
                 </div>
               )}
 
-              <form onSubmit={handleFindMatches} className="space-y-4">
-                {/* Dòng 1: Account ID + Chọn Ngày Bắt Đầu & Kết Thúc + Chọn Giờ */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
+              <form onSubmit={handleFindMatches} className="space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 items-end">
                   
                   {/* Account ID */}
-                  <div className="md:col-span-3 space-y-1.5">
+                  <div className="sm:col-span-2 md:col-span-3 space-y-1">
                     <Label htmlFor="accountId" className="text-foreground/90 font-medium text-xs flex items-center gap-1">
                       <Users className="w-3.5 h-3.5 text-amber-400" /> Account ID <span className="text-amber-500">*</span>
                     </Label>
@@ -921,30 +935,28 @@ export default function ScoreboardsPage() {
                   </div>
 
                   {/* Khung Ngày */}
-                  <div className="md:col-span-3 space-y-1.5">
+                  <div className="sm:col-span-2 md:col-span-3 space-y-1">
                     <Label className="text-foreground/90 font-medium text-xs flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5 text-amber-400" /> Ngày thi đấu <span className="text-amber-500">*</span>
                     </Label>
-                    <div className="flex gap-1.5">
-                      <Input 
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => {
-                          setStartDate(e.target.value);
-                          if (!endDate || endDate < e.target.value) {
-                            setEndDate(e.target.value);
-                          }
-                        }}
-                        className="bg-background/80 border-amber-500/30 text-white text-xs h-10"
-                        required
-                      />
-                    </div>
+                    <Input 
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => {
+                        setStartDate(e.target.value);
+                        if (!endDate || endDate < e.target.value) {
+                          setEndDate(e.target.value);
+                        }
+                      }}
+                      className="bg-background/80 border-amber-500/30 text-white text-xs h-10"
+                      required
+                    />
                   </div>
 
                   {/* Khung Giờ Bắt Đầu */}
-                  <div className="md:col-span-2 space-y-1.5">
+                  <div className="md:col-span-2 space-y-1">
                     <Label className="text-foreground/90 font-medium text-xs flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-amber-400" /> Giờ bắt đầu <span className="text-amber-500">*</span>
+                      <Clock className="w-3.5 h-3.5 text-amber-400" /> Giờ bắt đầu
                     </Label>
                     <select
                       value={startTime}
@@ -960,9 +972,9 @@ export default function ScoreboardsPage() {
                   </div>
 
                   {/* Khung Giờ Kết Thúc */}
-                  <div className="md:col-span-2 space-y-1.5">
+                  <div className="md:col-span-2 space-y-1">
                     <Label className="text-foreground/90 font-medium text-xs flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-amber-400" /> Giờ kết thúc <span className="text-amber-500">*</span>
+                      <Clock className="w-3.5 h-3.5 text-amber-400" /> Giờ kết thúc
                     </Label>
                     <select
                       value={endTime}
@@ -978,7 +990,7 @@ export default function ScoreboardsPage() {
                   </div>
 
                   {/* Nút Tìm Kiếm */}
-                  <div className="md:col-span-2">
+                  <div className="sm:col-span-2 md:col-span-2">
                     <Button 
                       type="submit" 
                       disabled={searchingMatches} 
@@ -999,68 +1011,48 @@ export default function ScoreboardsPage() {
               </form>
 
               {/* Quick Time Selection Presets */}
-              <div className="pt-3 border-t border-border/30 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" /> Chọn nhanh khoảng thời gian (1 chạm):
-                  </span>
-                </div>
+              <div className="pt-3 border-t border-border/30 space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" /> Chọn nhanh khoảng thời gian:
+                </span>
                 
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-muted-foreground mr-1">Gần nhất:</span>
                   {[
                     { label: "1 Giờ qua", hours: 1 },
                     { label: "3 Giờ qua", hours: 3 },
                     { label: "6 Giờ qua", hours: 6 },
                     { label: "12 Giờ qua", hours: 12 },
                     { label: "24 Giờ qua", hours: 24 },
-                    { label: "3 Ngày qua", hours: 72 },
-                    { label: "7 Ngày qua", hours: 168 },
-                  ].map((p) => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      onClick={() => {
-                        const now = new Date();
-                        const past = new Date(now.getTime() - p.hours * 60 * 60 * 1000);
-                        const pad = (n: number) => String(n).padStart(2, "0");
-                        setStartDate(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`);
-                        setEndDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
-                        setStartTime(`${pad(past.getHours())}:${pad(past.getMinutes())}`);
-                        setEndTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
-                        toast.info(`Đã đặt thời gian: ${p.label}`);
-                      }}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-secondary/60 hover:bg-amber-500 hover:text-black border border-border/40 transition-colors"
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  <span className="text-[11px] text-muted-foreground mr-1">Theo ca thi đấu:</span>
-                  {[
                     { label: "Hôm nay (Cả ngày)", start: "00:00", end: "23:59", dayOffset: 0 },
                     { label: "Hôm qua (Cả ngày)", start: "00:00", end: "23:59", dayOffset: -1 },
                     { label: "Ca Chiều (13h - 17h)", start: "13:00", end: "17:00", dayOffset: 0 },
                     { label: "Ca Tối 1 (18h - 20h30)", start: "18:00", end: "20:30", dayOffset: 0 },
                     { label: "Ca Tối 2 (20h30 - 23h30)", start: "20:30", end: "23:30", dayOffset: 0 },
-                  ].map((p) => (
+                  ].map((p: any) => (
                     <button
                       key={p.label}
                       type="button"
                       onClick={() => {
-                        const target = new Date();
-                        target.setDate(target.getDate() + p.dayOffset);
                         const pad = (n: number) => String(n).padStart(2, "0");
-                        const dateStr = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
-                        setStartDate(dateStr);
-                        setEndDate(dateStr);
-                        setStartTime(p.start);
-                        setEndTime(p.end);
-                        toast.info(`Đã chọn: ${p.label}`);
+                        if (p.hours) {
+                          const now = new Date();
+                          const past = new Date(now.getTime() - p.hours * 60 * 60 * 1000);
+                          setStartDate(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`);
+                          setEndDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+                          setStartTime(`${pad(past.getHours())}:${pad(past.getMinutes())}`);
+                          setEndTime(`${pad(now.getHours())}:${pad(now.getMinutes())}`);
+                        } else {
+                          const target = new Date();
+                          target.setDate(target.getDate() + p.dayOffset);
+                          const dateStr = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+                          setStartDate(dateStr);
+                          setEndDate(dateStr);
+                          setStartTime(p.start);
+                          setEndTime(p.end);
+                        }
+                        toast.info(`Đã đặt: ${p.label}`);
                       }}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-300 hover:bg-amber-500 hover:text-black border border-amber-500/30 transition-colors"
+                      className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-secondary/60 hover:bg-amber-500 hover:text-black border border-border/40 transition-colors"
                     >
                       {p.label}
                     </button>
@@ -1070,18 +1062,18 @@ export default function ScoreboardsPage() {
 
               {/* Match Buttons & Multi-Match Toolbar */}
               {matches.length > 0 && (
-                <div className="pt-4 border-t border-border/40 space-y-3">
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                <div className="pt-3 border-t border-border/40 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
                       Tìm thấy {matches.length} trận đấu:
                     </Label>
 
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleQuickAggregate(4, false)}
-                        className="text-xs h-7 gap-1.5 border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500 hover:text-black font-bold"
+                        className="text-xs h-7 gap-1 border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500 hover:text-black font-bold flex-1 sm:flex-none"
                       >
                         <Layers className="w-3.5 h-3.5" /> Tổng Hợp 4 Trận
                       </Button>
@@ -1089,9 +1081,9 @@ export default function ScoreboardsPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => handleQuickAggregate(5, true)}
-                        className="text-xs h-7 gap-1.5 border-purple-500/40 text-purple-300 bg-purple-500/10 hover:bg-purple-500 hover:text-white font-bold"
+                        className="text-xs h-7 gap-1 border-purple-500/40 text-purple-300 bg-purple-500/10 hover:bg-purple-500 hover:text-white font-bold flex-1 sm:flex-none"
                       >
-                        <Crown className="w-3.5 h-3.5" /> Tổng Hợp 5 Trận (CPR)
+                        <Crown className="w-3.5 h-3.5" /> 5 Trận (CPR)
                       </Button>
                       <Button
                         size="sm"
@@ -1099,13 +1091,13 @@ export default function ScoreboardsPage() {
                         onClick={() => handleQuickAggregate(matches.length, false)}
                         className="text-xs h-7 text-muted-foreground hover:text-white"
                       >
-                        Chọn tất cả ({matches.length})
+                        Tất cả ({matches.length})
                       </Button>
                     </div>
                   </div>
 
                   {/* Match Badges List */}
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {matches.map((m, idx) => {
                       const isSingleSelected = viewMode === "single" && selectedSingleMatchId === m.id;
                       const isMultiSelected = viewMode === "multi" && selectedMatchIds.includes(m.id);
@@ -1137,10 +1129,10 @@ export default function ScoreboardsPage() {
                           <button
                             type="button"
                             onClick={() => handleSelectSingleMatch(m.id)}
-                            className="px-3 py-2 text-xs font-mono font-bold flex items-center gap-1.5"
+                            className="px-2.5 py-1.5 text-xs font-mono font-bold flex items-center gap-1.5"
                           >
                             <span>Trận #{idx + 1}</span>
-                            <span className="opacity-75 font-sans font-normal text-[11px]">({formatUnixTime(m.startTime)})</span>
+                            <span className="opacity-75 font-sans font-normal text-[10px]">({formatUnixTime(m.startTime)})</span>
                           </button>
                         </div>
                       );
@@ -1154,74 +1146,65 @@ export default function ScoreboardsPage() {
           {/* VIEW MODE 1: SINGLE MATCH SCOREBOARD */}
           {viewMode === "single" && (
             loadingMatchDetails ? (
-              <div className="flex flex-col items-center justify-center p-16 space-y-3 bg-card/20 rounded-2xl border border-border/30">
-                <Loader2 className="w-10 h-10 animate-spin text-amber-500" />
-                <p className="text-sm font-medium text-muted-foreground animate-pulse">
+              <div className="flex flex-col items-center justify-center p-12 space-y-3 bg-card/20 rounded-2xl border border-border/30">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground animate-pulse">
                   Đang trích xuất điểm số trận đấu từ Garena...
                 </p>
               </div>
             ) : ranks.length > 0 ? (
               <Card className="border-border/60 bg-gradient-to-b from-card/90 to-card/60 backdrop-blur-md shadow-2xl overflow-hidden">
-                <CardHeader className="border-b border-border/40 pb-4 bg-black/40">
+                <CardHeader className="border-b border-border/40 pb-3 p-4 sm:p-6 bg-black/40">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <Medal className="w-6 h-6 text-amber-400" />
-                        <CardTitle className="text-xl font-black uppercase text-white tracking-wide">
+                        <Medal className="w-5 h-5 text-amber-400 shrink-0" />
+                        <CardTitle className="text-base sm:text-xl font-black uppercase text-white tracking-wide">
                           Bảng Điểm Chi Tiết Trận Đấu
                         </CardTitle>
                       </div>
-                      <CardDescription className="font-mono text-xs mt-1">
-                        Mã trận đấu: <span className="text-amber-400 font-bold">{selectedSingleMatchId}</span>
+                      <CardDescription className="font-mono text-xs mt-0.5">
+                        Mã trận: <span className="text-amber-400 font-bold">#{selectedSingleMatchId}</span>
                       </CardDescription>
                     </div>
 
-                    <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={() => setShowNames(!showNames)}
-                        className="text-xs h-9 border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
+                        className="text-xs h-8 border-amber-500/30 text-amber-300 hover:bg-amber-500/10 flex-1 md:flex-none"
                       >
-                        {showNames ? "Ẩn Tên Tuyển Thủ (Hiện ID)" : "Hiện Tên Tuyển Thủ"}
+                        {showNames ? "Hiện ID" : "Hiện Tên"}
                       </Button>
                       
-                      {/* Nút Tải Ảnh PNG Full HD */}
+                      {/* Nút Tải Ảnh PNG (bang-diem.png) */}
                       <Button 
                         size="sm" 
                         disabled={exportingPng}
                         onClick={downloadSingleMatchPng}
-                        className="text-xs h-9 gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black uppercase shadow-lg shadow-amber-500/25"
+                        className="text-xs h-8 gap-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black uppercase shadow-lg shadow-amber-500/25 flex-1 md:flex-none"
                       >
                         {exportingPng ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-                        Tải Ảnh PNG (Full HD)
-                      </Button>
-
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => window.print()}
-                        className="text-xs h-9 gap-1.5 border-border/60 text-white font-bold"
-                      >
-                        <Download className="w-3.5 h-3.5" /> PDF
+                        Tải Ảnh PNG
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
 
                 <CardContent className="p-0 overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[620px]">
                     <thead>
-                      <tr className="bg-black/60 border-b border-border/40 text-[11px] uppercase tracking-wider text-muted-foreground font-black">
-                        <th className="py-3.5 px-4 text-center w-16">Hạng</th>
-                        <th className="py-3.5 px-4 w-48">Tên Đội</th>
-                        <th className="py-3.5 px-4">Thành Viên (Tuyển thủ)</th>
-                        <th className="py-3.5 px-4 text-center w-24">Booyah!</th>
-                        <th className="py-3.5 px-4 text-center w-24">Số Kill</th>
-                        <th className="py-3.5 px-4 text-center w-28">Tổng Điểm</th>
+                      <tr className="bg-black/60 border-b border-border/40 text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground font-black">
+                        <th className="py-3 px-3 text-center w-14">Hạng</th>
+                        <th className="py-3 px-3 w-40">Tên Đội</th>
+                        <th className="py-3 px-3">Thành Viên</th>
+                        <th className="py-3 px-3 text-center w-20">Booyah!</th>
+                        <th className="py-3 px-3 text-center w-16">Kill</th>
+                        <th className="py-3 px-3 text-center w-24">Tổng Điểm</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/20 text-sm">
+                    <tbody className="divide-y divide-border/20 text-xs sm:text-sm">
                       {ranks.map((r, index) => {
                         const isTop1 = r.rank === 1;
                         const isTop2 = r.rank === 2;
@@ -1240,9 +1223,9 @@ export default function ScoreboardsPage() {
                                 : ""
                             }`}
                           >
-                            <td className="py-4 px-4 text-center font-black">
+                            <td className="py-3 px-3 text-center font-black">
                               <span 
-                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-xs ${
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg font-black text-xs ${
                                   isTop1 
                                     ? "bg-amber-500 text-black shadow-md shadow-amber-500/40" 
                                     : isTop2 
@@ -1256,26 +1239,26 @@ export default function ScoreboardsPage() {
                               </span>
                             </td>
 
-                            <td className="py-4 px-4">
+                            <td className="py-3 px-3">
                               <Input 
                                 placeholder={`Đội slot #${r.rank}`}
                                 value={r.teamName || ""}
                                 onChange={(e) => handleSingleTeamNameChange(index, e.target.value)}
-                                className="h-8 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-amber-500"
+                                className="h-7 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-amber-500"
                               />
                             </td>
 
-                            <td className="py-4 px-4">
-                              <div className="flex flex-wrap gap-1.5">
+                            <td className="py-3 px-3">
+                              <div className="flex flex-wrap gap-1">
                                 {showNames ? (
                                   r.accountNames.map((name, i) => (
-                                    <span key={i} className="px-2 py-0.5 rounded bg-black/40 border border-border/40 text-xs font-medium text-foreground">
+                                    <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/40 text-[11px] font-medium text-foreground">
                                       {name}
                                     </span>
                                   ))
                                 ) : (
                                   r.playerAccountIds.map((id, i) => (
-                                    <span key={i} className="px-2 py-0.5 rounded bg-black/40 border border-border/40 text-xs font-mono text-muted-foreground">
+                                    <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/40 text-[11px] font-mono text-muted-foreground">
                                       {id}
                                     </span>
                                   ))
@@ -1283,9 +1266,9 @@ export default function ScoreboardsPage() {
                               </div>
                             </td>
 
-                            <td className="py-4 px-4 text-center">
+                            <td className="py-3 px-3 text-center">
                               {r.booyah > 0 ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40">
                                   <Sparkles className="w-3 h-3" /> Booyah!
                                 </span>
                               ) : (
@@ -1293,15 +1276,15 @@ export default function ScoreboardsPage() {
                               )}
                             </td>
 
-                            <td className="py-4 px-4 text-center">
-                              <span className="inline-flex items-center gap-1 font-mono font-bold text-sm text-red-400">
-                                <Crosshair className="w-3.5 h-3.5" />
+                            <td className="py-3 px-3 text-center">
+                              <span className="inline-flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-red-400">
+                                <Crosshair className="w-3 h-3" />
                                 {r.kill}
                               </span>
                             </td>
 
-                            <td className="py-4 px-4 text-center">
-                              <span className="inline-block px-3 py-1 rounded-md bg-white/10 font-mono font-black text-base text-amber-300 border border-amber-500/30">
+                            <td className="py-3 px-3 text-center">
+                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-white/10 font-mono font-black text-sm sm:text-base text-amber-300 border border-amber-500/30">
                                 {r.score}
                               </span>
                             </td>
@@ -1318,75 +1301,65 @@ export default function ScoreboardsPage() {
           {/* VIEW MODE 2: MULTI-MATCH AGGREGATED SCOREBOARD */}
           {viewMode === "multi" && (
             loadingMultiMatches ? (
-              <div className="flex flex-col items-center justify-center p-16 space-y-3 bg-card/20 rounded-2xl border border-border/30">
-                <Loader2 className="w-10 h-10 animate-spin text-purple-500" />
-                <p className="text-sm font-medium text-muted-foreground animate-pulse">
+              <div className="flex flex-col items-center justify-center p-12 space-y-3 bg-card/20 rounded-2xl border border-border/30">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+                <p className="text-xs sm:text-sm font-medium text-muted-foreground animate-pulse">
                   Đang tính toán và tổng hợp điểm từ {selectedMatchIds.length} trận đấu...
                 </p>
               </div>
             ) : aggregatedTeams.length > 0 ? (
               <Card className="border-purple-500/40 bg-gradient-to-b from-card/95 to-card/70 backdrop-blur-md shadow-2xl overflow-hidden">
-                <CardHeader className="border-b border-border/40 pb-4 bg-purple-950/20">
+                <CardHeader className="border-b border-border/40 pb-3 p-4 sm:p-6 bg-purple-950/20">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <Crown className="w-6 h-6 text-yellow-400" />
-                        <CardTitle className="text-xl font-black uppercase text-white tracking-wide">
-                          Bảng Tổng Hợp Điểm ({selectedMatchIds.length} Trận)
+                        <Crown className="w-5 h-5 text-yellow-400 shrink-0" />
+                        <CardTitle className="text-base sm:text-xl font-black uppercase text-white tracking-wide">
+                          Bảng Tổng Hợp ({selectedMatchIds.length} Trận)
                         </CardTitle>
                         {cprThreshold > 0 && (
-                          <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">
-                            Chế độ Champion Rush
+                          <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">
+                            CPR
                           </span>
                         )}
                       </div>
-                      <CardDescription className="text-xs mt-1">
-                        Cộng dồn điểm số, số kill và thứ hạng qua {selectedMatchIds.length} trận đấu đã chọn
+                      <CardDescription className="text-xs mt-0.5">
+                        Cộng dồn điểm & kill qua {selectedMatchIds.length} trận đấu
                       </CardDescription>
                     </div>
 
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {/* Nút Tải Ảnh Tổng Hợp PNG Full HD */}
+                    <div className="flex items-center gap-2 flex-wrap w-full md:w-auto">
                       <Button 
                         size="sm" 
                         disabled={exportingPng}
                         onClick={downloadMultiMatchPng}
-                        className="text-xs h-9 gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black uppercase shadow-lg shadow-purple-500/30"
+                        className="text-xs h-8 gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black uppercase shadow-lg shadow-purple-500/30 flex-1 md:flex-none"
                       >
                         {exportingPng ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
-                        Tải Ảnh Bảng Tổng (PNG)
-                      </Button>
-
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => window.print()}
-                        className="text-xs h-9 gap-1.5 border-border/60 text-white font-bold"
-                      >
-                        <Download className="w-3.5 h-3.5" /> PDF
+                        Tải Ảnh PNG
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
 
                 <CardContent className="p-0 overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
                     <thead>
-                      <tr className="bg-black/60 border-b border-border/40 text-[11px] uppercase tracking-wider text-muted-foreground font-black">
-                        <th className="py-3.5 px-4 text-center w-16">Hạng</th>
-                        <th className="py-3.5 px-4 w-44">Tên Đội</th>
-                        <th className="py-3.5 px-4">Thành Viên</th>
+                      <tr className="bg-black/60 border-b border-border/40 text-[10px] sm:text-[11px] uppercase tracking-wider text-muted-foreground font-black">
+                        <th className="py-3 px-3 text-center w-14">Hạng</th>
+                        <th className="py-3 px-3 w-36">Tên Đội</th>
+                        <th className="py-3 px-3">Thành Viên</th>
                         {selectedMatchIds.map((mId, i) => (
-                          <th key={mId} className="py-3.5 px-2.5 text-center text-[10px] w-20">
-                            Trận #{i + 1}
+                          <th key={mId} className="py-3 px-2 text-center text-[10px] w-16">
+                            T #{i + 1}
                           </th>
                         ))}
-                        <th className="py-3.5 px-3 text-center w-20">Booyah</th>
-                        <th className="py-3.5 px-3 text-center w-20">Tổng Kill</th>
-                        <th className="py-3.5 px-4 text-center w-28 bg-purple-500/10 text-purple-300">Tổng Điểm</th>
+                        <th className="py-3 px-2 text-center w-14">Booyah</th>
+                        <th className="py-3 px-2 text-center w-16">Kill</th>
+                        <th className="py-3 px-3 text-center w-24 bg-purple-500/10 text-purple-300">Tổng Điểm</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/20 text-sm">
+                    <tbody className="divide-y divide-border/20 text-xs sm:text-sm">
                       {aggregatedTeams.map((team, index) => {
                         const isTop1 = team.finalRank === 1;
                         const isTop2 = team.finalRank === 2;
@@ -1405,9 +1378,9 @@ export default function ScoreboardsPage() {
                                 : ""
                             }`}
                           >
-                            <td className="py-4 px-4 text-center font-black">
+                            <td className="py-3 px-3 text-center font-black">
                               <span 
-                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg font-black text-xs ${
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg font-black text-xs ${
                                   isTop1 
                                     ? "bg-amber-500 text-black shadow-md shadow-amber-500/40" 
                                     : isTop2 
@@ -1421,19 +1394,19 @@ export default function ScoreboardsPage() {
                               </span>
                             </td>
 
-                            <td className="py-4 px-4">
+                            <td className="py-3 px-3">
                               <Input 
                                 placeholder={`Đội slot #${team.finalRank}`}
                                 value={team.teamName || ""}
                                 onChange={(e) => handleAggregatedTeamNameChange(index, e.target.value)}
-                                className="h-8 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-purple-500"
+                                className="h-7 text-xs font-bold bg-background/50 border-border/40 focus-visible:ring-purple-500"
                               />
                             </td>
 
-                            <td className="py-4 px-4">
+                            <td className="py-3 px-3">
                               <div className="flex flex-wrap gap-1">
                                 {team.accountNames.map((name, i) => (
-                                  <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/30 text-[11px] font-medium">
+                                  <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-border/30 text-[10px] font-medium">
                                     {name}
                                   </span>
                                 ))}
@@ -1443,7 +1416,7 @@ export default function ScoreboardsPage() {
                             {selectedMatchIds.map((mId) => {
                               const matchStat = team.matchScores[mId];
                               return (
-                                <td key={mId} className="py-4 px-2.5 text-center font-mono text-xs">
+                                <td key={mId} className="py-3 px-2 text-center font-mono text-xs">
                                   {matchStat ? (
                                     <div className="space-y-0.5">
                                       <span className="font-bold text-foreground">{matchStat.score}đ</span>
@@ -1456,16 +1429,16 @@ export default function ScoreboardsPage() {
                               );
                             })}
 
-                            <td className="py-4 px-3 text-center">
+                            <td className="py-3 px-2 text-center">
                               <span className="font-mono font-bold text-amber-400">{team.totalBooyah}</span>
                             </td>
 
-                            <td className="py-4 px-3 text-center">
+                            <td className="py-3 px-2 text-center">
                               <span className="font-mono font-bold text-red-400">{team.totalKill}</span>
                             </td>
 
-                            <td className="py-4 px-4 text-center bg-purple-500/10">
-                              <span className="inline-block px-3 py-1 rounded-md bg-purple-500/30 font-mono font-black text-base text-yellow-300 border border-purple-500/40">
+                            <td className="py-3 px-3 text-center bg-purple-500/10">
+                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-purple-500/30 font-mono font-black text-sm sm:text-base text-yellow-300 border border-purple-500/40">
                                 {team.totalScore}
                               </span>
                             </td>
@@ -1480,14 +1453,14 @@ export default function ScoreboardsPage() {
           )}
 
           {matches.length === 0 && !searchingMatches && (
-            <div className="flex flex-col items-center justify-center p-12 text-center bg-card/20 rounded-2xl border border-dashed border-border/40 space-y-3">
-              <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/20">
-                <Search className="w-7 h-7" />
+            <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center bg-card/20 rounded-2xl border border-dashed border-border/40 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/20">
+                <Search className="w-6 h-6" />
               </div>
               <div className="space-y-1">
-                <p className="font-bold text-foreground">Chưa có dữ liệu trận đấu</p>
+                <p className="font-bold text-foreground text-sm sm:text-base">Chưa có dữ liệu trận đấu</p>
                 <p className="text-xs text-muted-foreground max-w-sm">
-                  Hãy chọn ngày, khung giờ và bấm "Tìm trận" để xem chi tiết từng trận hoặc tính tổng điểm 4 trận, 5 trận Champion Rush.
+                  Hãy chọn ngày, khung giờ và bấm "Tìm trận" để xem chi tiết từng trận hoặc tính tổng điểm 4 trận, 5 trận CPR.
                 </p>
               </div>
             </div>
@@ -1497,25 +1470,25 @@ export default function ScoreboardsPage() {
 
       {/* Tab 2: Vmnghia API */}
       {activeTab === "vmnghia" && (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-          <div className="xl:col-span-5 space-y-6">
-            <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-xl shadow-black/50">
-              <CardHeader className="border-b border-border/40 pb-4">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-primary" />
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-5 space-y-4">
+            <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-xl">
+              <CardHeader className="border-b border-border/40 pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-primary" />
                   Kết Xuất Qua Vmnghia (Có Phí)
                 </CardTitle>
                 <CardDescription>Yêu cầu tài khoản Vmnghia còn số dư</CardDescription>
               </CardHeader>
-              <CardContent className="pt-6">
-                <form onSubmit={handleVmnghiaSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="scoreboardTypeId">Mẫu Bảng Điểm</Label>
+              <CardContent className="pt-4">
+                <form onSubmit={handleVmnghiaSubmit} className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="scoreboardTypeId" className="text-xs">Mẫu Bảng Điểm</Label>
                     <select
                       id="scoreboardTypeId"
                       value={vmnghiaForm.scoreboardTypeId}
                       onChange={(e) => setVmnghiaForm(prev => ({ ...prev, scoreboardTypeId: e.target.value }))}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
                     >
                       {catalog.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -1525,13 +1498,13 @@ export default function ScoreboardsPage() {
                     </select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="keyId">Key Dữ Liệu</Label>
+                  <div className="space-y-1">
+                    <Label htmlFor="keyId" className="text-xs">Key Dữ Liệu</Label>
                     <select
                       id="keyId"
                       value={vmnghiaForm.keyId}
                       onChange={(e) => setVmnghiaForm(prev => ({ ...prev, keyId: e.target.value }))}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
                     >
                       <option value="">-- Không chọn --</option>
                       {keys.map((item) => (
@@ -1542,42 +1515,45 @@ export default function ScoreboardsPage() {
                     </select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="idGame">ID Game (ID Phòng)</Label>
+                  <div className="space-y-1">
+                    <Label htmlFor="idGame" className="text-xs">ID Game (ID Phòng)</Label>
                     <Input 
                       id="idGame" 
                       placeholder="VD: 7476037837"
                       value={vmnghiaForm.idGame}
                       onChange={(e) => setVmnghiaForm(prev => ({ ...prev, idGame: e.target.value }))}
+                      className="h-9 text-xs"
                       required
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="timeStart">Bắt đầu</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="timeStart" className="text-xs">Bắt đầu</Label>
                       <Input 
                         id="timeStart" 
                         placeholder="YYYY/MM/DD HH:mm:ss"
                         value={vmnghiaForm.timeStart}
                         onChange={(e) => setVmnghiaForm(prev => ({ ...prev, timeStart: e.target.value }))}
+                        className="h-9 text-xs"
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="timeEnd">Kết thúc</Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="timeEnd" className="text-xs">Kết thúc</Label>
                       <Input 
                         id="timeEnd" 
                         placeholder="YYYY/MM/DD HH:mm:ss"
                         value={vmnghiaForm.timeEnd}
                         onChange={(e) => setVmnghiaForm(prev => ({ ...prev, timeEnd: e.target.value }))}
+                        className="h-9 text-xs"
                         required
                       />
                     </div>
                   </div>
 
-                  <Button type="submit" disabled={submittingVmnghia} className="w-full mt-4 font-bold">
-                    {submittingVmnghia ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+                  <Button type="submit" disabled={submittingVmnghia} className="w-full mt-2 font-bold h-9 text-xs">
+                    {submittingVmnghia ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Zap className="w-3.5 h-3.5 mr-1.5" />}
                     Kết xuất ảnh
                   </Button>
                 </form>
@@ -1586,15 +1562,65 @@ export default function ScoreboardsPage() {
           </div>
 
           <div className="xl:col-span-7">
-            <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-xl min-h-[400px] flex flex-col justify-center items-center p-6">
+            <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-xl min-h-[300px] flex flex-col justify-center items-center p-4">
               {vmnghiaResultImage ? (
                 <img src={vmnghiaResultImage} alt="Kết quả" className="w-full h-auto rounded-lg" />
               ) : (
-                <div className="text-center text-muted-foreground">
+                <div className="text-center text-muted-foreground text-xs">
                   <p>Chưa có ảnh kết xuất</p>
                 </div>
               )}
             </Card>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE & DESKTOP IMAGE PREVIEW MODAL */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in">
+          <div className="bg-neutral-900 border border-amber-500/40 rounded-2xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+            <div className="p-3 sm:p-4 border-b border-border/40 flex items-center justify-between bg-black/50">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-amber-400" />
+                <h3 className="font-bold text-white text-sm sm:text-base">{previewImageTitle}</h3>
+              </div>
+              <button 
+                onClick={() => setPreviewImageUrl(null)}
+                className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 overflow-y-auto flex-1 flex flex-col items-center bg-black/30">
+              <img 
+                src={previewImageUrl} 
+                alt="Bảng điểm PNG" 
+                className="w-full h-auto max-h-[60vh] object-contain rounded-lg border border-border/40 shadow-xl select-all"
+              />
+              <div className="mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2 text-left">
+                <Smartphone className="w-4 h-4 shrink-0 text-amber-400" />
+                <span><strong>Mẹo trên điện thoại:</strong> Bạn có thể <strong>nhấn giữ vào ảnh 1 giây</strong> để chọn "Lưu hình ảnh / Tải ảnh về" vào Bộ sưu tập ảnh.</span>
+              </div>
+            </div>
+
+            <div className="p-3 sm:p-4 border-t border-border/40 bg-black/50 flex items-center justify-end gap-2">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={() => setPreviewImageUrl(null)}
+                className="text-xs h-8"
+              >
+                Đóng
+              </Button>
+              <a 
+                href={previewImageUrl} 
+                download="bang-diem.png"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase shadow-md transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" /> Tải về bang-diem.png
+              </a>
+            </div>
           </div>
         </div>
       )}
