@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { updateTaskTeamStatus } from "@/actions/tasks";
 import { submitMatchReport } from "@/actions/reports";
-import { updateMemberProfile } from "@/actions/teams";
+import { updateMemberProfile, captainAddTeamMember, captainUpdateTeamMember } from "@/actions/teams";
 import {
   formatCurrency,
   formatDate,
@@ -93,6 +93,16 @@ export function CaptainDashboard({ team, user, notifications }: CaptainDashboard
     {}
   );
   const [loading, setLoading] = useState(false);
+
+  // Add/Edit Member states
+  const [openAddMember, setOpenAddMember] = useState(false);
+  const [openEditMember, setOpenEditMember] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [memberRealName, setMemberRealName] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberNickname, setMemberNickname] = useState("");
+  const [memberGameUid, setMemberGameUid] = useState("");
+  const [memberLoading, setMemberLoading] = useState(false);
 
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -530,6 +540,18 @@ export function CaptainDashboard({ team, user, notifications }: CaptainDashboard
           {/* Members Tab */}
           <TabsContent value="members">
             <Card className="border-border/40 bg-card/60">
+              <div className="flex items-center justify-between p-4 border-b border-border/40">
+                <h3 className="font-bold text-sm">Danh sách thành viên</h3>
+                <Button size="sm" onClick={() => {
+                  setMemberRealName("");
+                  setMemberEmail("");
+                  setMemberNickname("");
+                  setMemberGameUid("");
+                  setOpenAddMember(true);
+                }}>
+                  Thêm thành viên
+                </Button>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -537,6 +559,7 @@ export function CaptainDashboard({ team, user, notifications }: CaptainDashboard
                     <TableHead>Tài khoản</TableHead>
                     <TableHead>Game UID</TableHead>
                     <TableHead>Vai trò</TableHead>
+                    <TableHead className="text-right">Hành động</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -564,6 +587,24 @@ export function CaptainDashboard({ team, user, notifications }: CaptainDashboard
                             ? "Đội trưởng"
                             : "Thành viên"}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {m.user.role !== "TEAM_CAPTAIN" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => {
+                              setSelectedMemberId(m.id);
+                              setMemberRealName(m.user.name);
+                              setMemberNickname(m.nickname);
+                              setMemberGameUid(m.gameUid || "");
+                              setOpenEditMember(true);
+                            }}
+                          >
+                            Sửa
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -908,6 +949,155 @@ export function CaptainDashboard({ team, user, notifications }: CaptainDashboard
               className="w-full mt-3 glow-primary"
             >
               {profileLoading ? "Đang lưu..." : "Lưu thay đổi"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Member Modal */}
+      <Dialog open={openAddMember} onOpenChange={setOpenAddMember}>
+        <DialogContent className="glass border-border/40 sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" /> Thêm thành viên mới
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setMemberLoading(true);
+              try {
+                await captainAddTeamMember({
+                  name: memberRealName,
+                  email: memberEmail,
+                  nickname: memberNickname,
+                  gameUid: memberGameUid,
+                });
+                toast.success("Đã thêm thành viên mới!");
+                setOpenAddMember(false);
+              } catch (err: any) {
+                toast.error(err.message || "Lỗi thêm thành viên");
+              } finally {
+                setMemberLoading(false);
+              }
+            }}
+            className="space-y-3 pt-2"
+          >
+            <div>
+              <Label htmlFor="add-real">Họ và tên thật</Label>
+              <Input
+                id="add-real"
+                placeholder="Ví dụ: Nguyễn Văn B"
+                value={memberRealName}
+                onChange={(e) => setMemberRealName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="add-email">Email (Dùng để đăng nhập)</Label>
+              <Input
+                id="add-email"
+                type="email"
+                placeholder="Ví dụ: member@gmail.com"
+                value={memberEmail}
+                onChange={(e) => setMemberEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="add-nick">Tên trong game (Nickname / IGN)</Label>
+              <Input
+                id="add-nick"
+                placeholder="Ví dụ: Player123"
+                value={memberNickname}
+                onChange={(e) => setMemberNickname(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="add-uid">Game UID</Label>
+              <Input
+                id="add-uid"
+                placeholder="Ví dụ: 9999999"
+                value={memberGameUid}
+                onChange={(e) => setMemberGameUid(e.target.value)}
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={memberLoading}
+              className="w-full mt-3 glow-primary"
+            >
+              {memberLoading ? "Đang xử lý..." : "Thêm thành viên"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Member Modal */}
+      <Dialog open={openEditMember} onOpenChange={setOpenEditMember}>
+        <DialogContent className="glass border-border/40 sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" /> Sửa thông tin thành viên
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setMemberLoading(true);
+              try {
+                await captainUpdateTeamMember({
+                  memberId: selectedMemberId,
+                  name: memberRealName,
+                  nickname: memberNickname,
+                  gameUid: memberGameUid,
+                });
+                toast.success("Đã cập nhật thông tin thành viên!");
+                setOpenEditMember(false);
+              } catch (err: any) {
+                toast.error(err.message || "Lỗi cập nhật thành viên");
+              } finally {
+                setMemberLoading(false);
+              }
+            }}
+            className="space-y-3 pt-2"
+          >
+            <div>
+              <Label htmlFor="edit-real">Họ và tên thật</Label>
+              <Input
+                id="edit-real"
+                placeholder="Ví dụ: Nguyễn Văn B"
+                value={memberRealName}
+                onChange={(e) => setMemberRealName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-nick">Tên trong game (Nickname / IGN)</Label>
+              <Input
+                id="edit-nick"
+                placeholder="Ví dụ: Player123"
+                value={memberNickname}
+                onChange={(e) => setMemberNickname(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-uid">Game UID</Label>
+              <Input
+                id="edit-uid"
+                placeholder="Ví dụ: 9999999"
+                value={memberGameUid}
+                onChange={(e) => setMemberGameUid(e.target.value)}
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={memberLoading}
+              className="w-full mt-3 glow-primary"
+            >
+              {memberLoading ? "Đang lưu..." : "Lưu thay đổi"}
             </Button>
           </form>
         </DialogContent>

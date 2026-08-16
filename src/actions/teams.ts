@@ -300,5 +300,126 @@ export async function setTeamCaptain(teamId: string, memberId: string) {
   return { success: true };
 }
 
+export async function captainAddTeamMember({
+  name,
+  email,
+  nickname,
+  gameUid,
+}: {
+  name: string;
+  email: string;
+  nickname: string;
+  gameUid?: string;
+}) {
+  const session = await auth();
+  if (!session || session.user.role !== "TEAM_CAPTAIN") {
+    throw new Error("Chỉ đội trưởng mới có quyền này");
+  }
+
+  const captainMember = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id, isActive: true },
+    include: { team: true }
+  });
+
+  if (!captainMember) throw new Error("Đội trưởng chưa thuộc đội nào");
+
+  const defaultPassword = await bcrypt.hash("1", 12);
+
+  // Check if user exists
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: defaultPassword,
+        role: Role.MEMBER,
+      },
+    });
+  }
+
+  const member = await prisma.teamMember.upsert({
+    where: {
+      teamId_userId: {
+        teamId: captainMember.teamId,
+        userId: user.id,
+      },
+    },
+    update: {
+      nickname,
+      gameUid: gameUid || null,
+      isActive: true,
+    },
+    create: {
+      teamId: captainMember.teamId,
+      userId: user.id,
+      nickname,
+      gameUid: gameUid || null,
+    },
+  });
+
+  await logActivity(
+    session.user.id,
+    "Đội trưởng thêm thành viên",
+    `Đã thêm ${name} (${nickname}) vào đội`
+  );
+
+  revalidatePath("/captain");
+  return member;
+}
+
+export async function captainUpdateTeamMember({
+  memberId,
+  name,
+  nickname,
+  gameUid,
+}: {
+  memberId: string;
+  name: string;
+  nickname: string;
+  gameUid?: string;
+}) {
+  const session = await auth();
+  if (!session || session.user.role !== "TEAM_CAPTAIN") {
+    throw new Error("Chỉ đội trưởng mới có quyền này");
+  }
+
+  const captainMember = await prisma.teamMember.findFirst({
+    where: { userId: session.user.id, isActive: true },
+  });
+
+  if (!captainMember) throw new Error("Đội trưởng chưa thuộc đội nào");
+
+  const targetMember = await prisma.teamMember.findUnique({
+    where: { id: memberId },
+    include: { user: true },
+  });
+
+  if (!targetMember || targetMember.teamId !== captainMember.teamId) {
+    throw new Error("Không thể sửa thành viên của đội khác");
+  }
+
+  await prisma.user.update({
+    where: { id: targetMember.userId },
+    data: { name },
+  });
+
+  const updatedMember = await prisma.teamMember.update({
+    where: { id: targetMember.id },
+    data: {
+      nickname,
+      gameUid: gameUid || null,
+    },
+  });
+
+  await logActivity(
+    session.user.id,
+    "Đội trưởng sửa thành viên",
+    `Cập nhật: ${name} | Nickname: ${nickname}`
+  );
+
+  revalidatePath("/captain");
+  return updatedMember;
+}
 
 
