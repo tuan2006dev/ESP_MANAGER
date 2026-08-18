@@ -36,8 +36,8 @@ export async function banTeamIps(teamId: string, reason?: string) {
       data: { status: "SUSPENDED" },
     });
 
-    revalidatePath("/dashboard/settings/ip-logs");
-    revalidatePath("/dashboard/teams");
+    revalidatePath("/admin/ip-logs");
+    revalidatePath("/admin/teams");
     return { success: true };
   } catch (error: any) {
     console.error("Error banning team IPs:", error);
@@ -52,7 +52,7 @@ export async function banIp(ip: string, reason?: string) {
       update: { reason },
       create: { ip, reason },
     });
-    revalidatePath("/dashboard/settings/ip-logs");
+    revalidatePath("/admin/ip-logs");
     return { success: true };
   } catch (error: any) {
     return { error: error.message || "Failed to ban IP" };

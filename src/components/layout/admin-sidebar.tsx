@@ -43,6 +43,7 @@ const adminNavItems = [
   { label: "Violations", href: "/admin/violations", icon: AlertTriangle },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },
   { label: "Activity Logs", href: "/admin/activity-logs", icon: Activity },
+  { label: "IP Logs", href: "/admin/ip-logs", icon: Shield },
   { label: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
