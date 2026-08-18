@@ -138,7 +138,12 @@ export default function ScoreboardsPage() {
     const today = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-    setStartDate(todayStr);
+    
+    const past = new Date();
+    past.setDate(past.getDate() - 14);
+    const pastStr = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+
+    setStartDate(pastStr);
     setEndDate(todayStr);
     setStartTime("00:00");
     setEndTime("23:59");

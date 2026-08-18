@@ -71,6 +71,27 @@ export function TasksList({ tasks, teams }: TasksListProps) {
     teams.map((t) => t.id)
   );
   const [loading, setLoading] = useState(false);
+  const [filterDate, setFilterDate] = useState("");
+  const [filterTime, setFilterTime] = useState("");
+
+  const filteredTasks = tasks.filter((task) => {
+    let matchDate = true;
+    let matchTime = true;
+    
+    if (filterDate) {
+      const d = new Date(task.date);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      matchDate = `${yyyy}-${mm}-${dd}` === filterDate;
+    }
+    
+    if (filterTime) {
+      matchTime = task.time === filterTime;
+    }
+    
+    return matchDate && matchTime;
+  });
 
   const toggleTeam = (teamId: string) => {
     setSelectedTeamIds((prev) =>
@@ -162,9 +183,28 @@ export function TasksList({ tasks, teams }: TasksListProps) {
           </p>
         </div>
 
-        <Button className="glow-primary" onClick={() => setOpenCreate(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Tạo Nhiệm vụ mới
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="w-[150px]"
+          />
+          <Input
+            type="time"
+            value={filterTime}
+            onChange={(e) => setFilterTime(e.target.value)}
+            className="w-[120px]"
+          />
+          {(filterDate || filterTime) && (
+            <Button variant="ghost" size="sm" onClick={() => { setFilterDate(""); setFilterTime(""); }} className="px-2">
+              Xóa lọc
+            </Button>
+          )}
+          <Button className="glow-primary" onClick={() => setOpenCreate(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Tạo Nhiệm vụ mới
+          </Button>
+        </div>
 
         <Dialog open={openCreate} onOpenChange={setOpenCreate}>
           <DialogContent className="glass border-border/40 sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
@@ -200,7 +240,7 @@ export function TasksList({ tasks, teams }: TasksListProps) {
                   <Label htmlFor="task-time">Thời gian</Label>
                   <Input
                     id="task-time"
-                    placeholder="20:05"
+                    type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
                   />
@@ -294,16 +334,16 @@ export function TasksList({ tasks, teams }: TasksListProps) {
       </div>
 
       <div className="space-y-4">
-        {tasks.length === 0 ? (
+        {filteredTasks.length === 0 ? (
           <Card className="border-border/40 bg-card/60 p-12 text-center text-muted-foreground">
             <ClipboardList className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p className="text-base font-semibold">Chưa có nhiệm vụ nào.</p>
             <p className="text-xs mt-1">
-              Nhấn nút &quot;Tạo Nhiệm vụ mới&quot; để bắt đầu giao task cho các đội.
+              {filterDate ? "Không có nhiệm vụ nào trong ngày này." : "Nhấn nút \"Tạo Nhiệm vụ mới\" để bắt đầu giao task cho các đội."}
             </p>
           </Card>
         ) : (
-          tasks.map((task) => (
+          filteredTasks.map((task) => (
             <Card
               key={task.id}
               className="bg-card/80 border-border/40 hover:border-primary/30 transition-all overflow-hidden"
