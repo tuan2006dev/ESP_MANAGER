@@ -119,6 +119,7 @@ model User {
   activityLogs    ActivityLog[]
   notifications   Notification[]
   approvedResults MatchResult[]  @relation("ApprovedBy")
+  userIps         UserIP[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -379,6 +380,32 @@ model SystemSetting {
   key   String @unique
   value String @db.Text
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// SECURITY & IP TRACKING
+// ============================================
+
+model UserIP {
+  id        String   @id @default(cuid())
+  userId    String
+  ip        String
+  lastSeen  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, ip])
+}
+
+model BannedIP {
+  id        String   @id @default(cuid())
+  ip        String   @unique
+  reason    String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

@@ -20,8 +20,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Users, Plus, MoreVertical, Eye, Trash2, Edit } from "lucide-react";
+import { Users, Plus, MoreVertical, Eye, Trash2, Edit, ShieldAlert } from "lucide-react";
 import { createTeam, deleteTeam, updateTeam } from "@/actions/teams";
+import { banTeamIps } from "@/actions/ip-bans";
 import { toast } from "sonner";
 import { calculateWinrate } from "@/lib/utils";
 
@@ -77,6 +78,18 @@ export function TeamsList({ teams }: { teams: TeamWithDetails[] }) {
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "Lỗi xóa đội");
+    }
+  };
+
+  const handleBanTeamIps = async (teamId: string, teamName: string) => {
+    if (confirm(`Bạn có chắc chắn muốn cấm toàn bộ IP của các thành viên trong đội ${teamName}? Các thành viên sẽ không thể truy cập hệ thống.`)) {
+      try {
+        const res = await banTeamIps(teamId, `Cấm đội ${teamName}`);
+        if (res.error) throw new Error(res.error);
+        toast.success(`Đã cấm tất cả IP của đội ${teamName}`);
+      } catch (error: any) {
+        toast.error(error.message);
+      }
     }
   };
 
@@ -175,6 +188,15 @@ export function TeamsList({ teams }: { teams: TeamWithDetails[] }) {
                         <Eye className="h-4 w-4" />
                       </Button>
                     </Link>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10"
+                      onClick={() => handleBanTeamIps(team.id, team.name)}
+                      title="Cấm IP của đội"
+                    >
+                      <ShieldAlert className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
